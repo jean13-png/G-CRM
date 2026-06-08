@@ -15,28 +15,39 @@ class RoleSelectionScreen extends StatelessWidget {
             top: 0,
             left: 0,
             right: 0,
-            height: MediaQuery.of(context).size.height * 0.25,
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [AppTheme.secondaryColor, AppTheme.primaryColor],
-                ),
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(40),
-                  bottomRight: Radius.circular(40),
-                ),
+            height: MediaQuery.of(context).size.height * 0.28, // Increased from 0.25 to 0.28
+            child: ClipRRect(
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(40),
+                bottomRight: Radius.circular(40),
               ),
               child: Stack(
                 children: [
-                  Positioned(
-                    right: -20,
-                    top: -20,
-                    child: Icon(
-                      Icons.insights,
-                      size: 150,
-                      color: Colors.white.withOpacity(0.1),
+                  Transform.scale(
+                    scale: 1.15, // Reduced zoom level from 1.3 to 1.15
+                    child: Image.asset(
+                      'assets/images/banner.png',
+                      width: double.infinity,
+                      height: double.infinity,
+                      fit: BoxFit.cover,
+                      alignment: Alignment.center,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [AppTheme.secondaryColor, AppTheme.primaryColor],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  // Slight blur and dark overlay for readability
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.3),
                     ),
                   ),
                   const Center(
@@ -64,7 +75,7 @@ class RoleSelectionScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  SizedBox(height: MediaQuery.of(context).size.height * 0.12),
+                  SizedBox(height: MediaQuery.of(context).size.height * 0.16), // Increased from 0.14 to 0.16 to compensate height increase
                   // App Branding Header
                   Center(
                     child: Container(
