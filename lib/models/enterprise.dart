@@ -89,6 +89,7 @@ class Enterprise {
   final String brevoApiKey;
   final String brevoSenderEmail;
   final List<MessageTemplate> messageTemplates;
+  final String defaultCountryCode; // e.g., "229" for Benin
 
   Enterprise({
     required this.id,
@@ -101,6 +102,7 @@ class Enterprise {
     this.brevoApiKey = '',
     this.brevoSenderEmail = '',
     this.messageTemplates = const [],
+    this.defaultCountryCode = '229',
   });
 
   static List<ProspectFieldSetting> get defaultSettings => [
@@ -123,6 +125,7 @@ class Enterprise {
     String? brevoApiKey,
     String? brevoSenderEmail,
     List<MessageTemplate>? messageTemplates,
+    String? defaultCountryCode,
   }) {
     return Enterprise(
       id: id ?? this.id,
@@ -135,6 +138,7 @@ class Enterprise {
       brevoApiKey: brevoApiKey ?? this.brevoApiKey,
       brevoSenderEmail: brevoSenderEmail ?? this.brevoSenderEmail,
       messageTemplates: messageTemplates ?? this.messageTemplates,
+      defaultCountryCode: defaultCountryCode ?? this.defaultCountryCode,
     );
   }
 
@@ -150,6 +154,7 @@ class Enterprise {
       'brevoApiKey': brevoApiKey,
       'brevoSenderEmail': brevoSenderEmail,
       'messageTemplates': messageTemplates.map((x) => x.toMap()).toList(),
+      'defaultCountryCode': defaultCountryCode,
     };
   }
 
@@ -171,6 +176,7 @@ class Enterprise {
           ? List<MessageTemplate>.from(
               map['messageTemplates'].map((x) => MessageTemplate.fromMap(x)))
           : const [],
+      defaultCountryCode: map['defaultCountryCode'] ?? '229',
     );
   }
 

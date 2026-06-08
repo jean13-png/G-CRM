@@ -10,6 +10,7 @@ import '../models/agent.dart';
 import '../models/prospect.dart';
 import '../models/task.dart';
 import '../models/chat_message.dart';
+import '../models/app_notification.dart';
 
 
 class DatabaseService extends ChangeNotifier {
@@ -28,6 +29,7 @@ class DatabaseService extends ChangeNotifier {
   final Map<String, Prospect> _prospects = {};
   final Map<String, Task> _tasks = {};
   final List<ChatMessage> _chatMessages = [];
+  final List<AppNotification> _notifications = [];
 
   // For credentials matching in offline/mock mode
   // key: email, value: {password, id, role}
@@ -47,6 +49,7 @@ class DatabaseService extends ChangeNotifier {
   List<Prospect> get allProspects => _prospects.values.toList();
   List<Task> get allTasks => _tasks.values.toList();
   List<ChatMessage> get allChatMessages => List.unmodifiable(_chatMessages);
+  List<AppNotification> get allNotifications => List.unmodifiable(_notifications);
 
   // Get path to local database file
   Future<File> get _localFile async {
@@ -103,6 +106,14 @@ class DatabaseService extends ChangeNotifier {
           }
         }
 
+        // Load Notifications
+        if (data['notifications'] != null) {
+          final List<dynamic> notifs = data['notifications'];
+          for (var v in notifs) {
+            _notifications.add(AppNotification.fromMap(v));
+          }
+        }
+
         // Load Credentials
         if (data['credentials'] != null) {
           final Map<String, dynamic> creds = data['credentials'];
@@ -133,6 +144,7 @@ class DatabaseService extends ChangeNotifier {
         'prospects': _prospects.map((k, v) => MapEntry(k, v.toMap())),
         'tasks': _tasks.map((k, v) => MapEntry(k, v.toMap())),
         'chatMessages': _chatMessages.map((v) => v.toMap()).toList(),
+        'notifications': _notifications.map((v) => v.toMap()).toList(),
         'credentials': _credentials,
       };
       await file.writeAsString(json.encode(dbDump), flush: true);
@@ -411,10 +423,68 @@ class DatabaseService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Update Country Code
+  Future<void> updateDefaultCountryCode(String code) async {
+    if (_currentEnterprise == null) return;
+    // Remove '+' if present
+    final cleanCode = code.replaceAll('+', '').trim();
+    final updated = _currentEnterprise!.copyWith(defaultCountryCode: cleanCode);
+    _enterprises[updated.id] = updated;
+    _currentEnterprise = updated;
+    await saveToDisk();
+    notifyListeners();
+  }
+
+  // Format phone number for WhatsApp/SMS
+  String formatPhoneNumber(String phone) {
+    // Remove all non-numeric characters
+    String cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    
+    // If it starts with 00, replace with nothing (standardizing)
+    if (cleanPhone.startsWith('00')) {
+      cleanPhone = cleanPhone.substring(2);
+    }
+    
+    // Get default country code from enterprise
+    final String countryCode = _currentEnterprise?.defaultCountryCode ?? 
+                              (_currentAgent?.enterpriseId != null ? 
+                              _enterprises[_currentAgent!.enterpriseId]?.defaultCountryCode ?? '229' : '229');
+
+    // If phone doesn't start with country code and is a local number (e.g., 10 digits for Benin)
+    // We assume it needs the country code
+    if (!cleanPhone.startsWith(countryCode)) {
+      // Special case for Benin (229): The leading '0' MUST be kept in international format
+      if (countryCode == '229') {
+        // If it's a 10-digit number starting with 0, just prepend 229 without stripping 0
+        return countryCode + cleanPhone;
+      }
+
+      // General case for other countries: strip local zero prefix
+      if (cleanPhone.startsWith('0')) {
+        cleanPhone = cleanPhone.substring(1);
+      }
+      return countryCode + cleanPhone;
+    }
+    
+    return cleanPhone;
+  }
+
+  // ================= PROSPECT ACTIONS =================
+
 
   // Assign a list of prospects to an agent
   Future<void> assignProspectsToAgent(String agentId, List<String> prospectIds) async {
     if (_currentEnterprise == null) return;
+    
+    // 1. Update each prospect to link it to the new agent
+    for (var pid in prospectIds) {
+      final p = _prospects[pid];
+      if (p != null) {
+        _prospects[pid] = p.copyWith(agentId: agentId);
+      }
+    }
+
+    // 2. Create the task
     final taskId = "task_${DateTime.now().millisecondsSinceEpoch}";
     final newTask = Task(
       id: taskId,
@@ -424,8 +494,22 @@ class DatabaseService extends ChangeNotifier {
       assignedAt: DateTime.now(),
     );
     _tasks[taskId] = newTask;
+    
     await saveToDisk();
     notifyListeners();
+
+    // 3. Create notification for agent
+    final notif = AppNotification(
+      id: "notif_task_${DateTime.now().millisecondsSinceEpoch}",
+      title: "Nouvelle tâche assignée",
+      body: "Vous avez reçu ${prospectIds.length} nouveaux prospects à traiter.",
+      timestamp: DateTime.now(),
+      type: 'task',
+      relatedId: taskId,
+      targetUserId: agentId,
+    );
+    _notifications.add(notif);
+    _notifyNewAppNotification(notif);
   }
 
   // Reset all assignments/tasks for the current enterprise
@@ -532,10 +616,10 @@ class DatabaseService extends ChangeNotifier {
     final agents = getAgentsForCurrentEnterprise();
     for (var agent in agents) {
       final agentProspects = _prospects.values.where((x) => x.agentId == agent.id);
-      int ok = agentProspects.where((x) => x.status == 'ok').length;
-      int non = agentProspects.where((x) => x.status == 'non').length;
+      int ok = agentProspects.where((x) => x.status == 'Succès').length;
+      int non = agentProspects.where((x) => x.status == 'Refus').length;
       int unreachable = agentProspects.where((x) => x.status == 'unreachable').length;
-      int pending = agentProspects.where((x) => x.status == 'pending').length;
+      int pending = agentProspects.where((x) => x.status == 'En attente').length;
       map[agent.name] = {
         'ok': ok,
         'non': non,
@@ -856,21 +940,31 @@ class DatabaseService extends ChangeNotifier {
     await saveToDisk();
     notifyListeners();
 
-    // Notify listeners of the new message for in-app notifications
-    _notifyNewMessage(message);
+    // Create notification
+    final notif = AppNotification(
+      id: "notif_msg_${DateTime.now().millisecondsSinceEpoch}",
+      title: "Nouveau message",
+      body: "${senderName}: ${content}",
+      timestamp: DateTime.now(),
+      type: 'message',
+      relatedId: agentId,
+      targetUserId: _currentUserRole == 'enterprise' ? agentId : enterpriseId,
+    );
+    _notifications.add(notif);
+    _notifyNewAppNotification(notif);
   }
 
   // Notification stream for in-app alerts
-  final _messageController = StreamController<ChatMessage>.broadcast();
-  Stream<ChatMessage> get onNewMessage => _messageController.stream;
+  final _notifController = StreamController<AppNotification>.broadcast();
+  Stream<AppNotification> get onNewNotification => _notifController.stream;
 
-  void _notifyNewMessage(ChatMessage message) {
-    _messageController.add(message);
+  void _notifyNewAppNotification(AppNotification notification) {
+    _notifController.add(notification);
   }
 
   @override
   void dispose() {
-    _messageController.close();
+    _notifController.close();
     super.dispose();
   }
 
@@ -923,6 +1017,45 @@ class DatabaseService extends ChangeNotifier {
              m.senderId != currentUserId && 
              !m.isRead;
     }).length;
+  }
+
+  // Get unread notifications count for current user
+  int getUnreadNotificationsCount() {
+    final String currentUserId = _currentUserRole == 'enterprise' 
+        ? (_currentEnterprise?.id ?? '') 
+        : (_currentAgent?.id ?? '');
+    
+    return _notifications.where((n) => n.targetUserId == currentUserId && !n.isRead).length;
+  }
+
+  // Get notifications for current user
+  List<AppNotification> getMyNotifications() {
+    final String currentUserId = _currentUserRole == 'enterprise' 
+        ? (_currentEnterprise?.id ?? '') 
+        : (_currentAgent?.id ?? '');
+    
+    return _notifications.where((n) => n.targetUserId == currentUserId).toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+  }
+
+  // Mark all notifications as read
+  Future<void> markAllNotificationsAsRead() async {
+    final String currentUserId = _currentUserRole == 'enterprise' 
+        ? (_currentEnterprise?.id ?? '') 
+        : (_currentAgent?.id ?? '');
+    
+    bool changed = false;
+    for (int i = 0; i < _notifications.length; i++) {
+      if (_notifications[i].targetUserId == currentUserId && !_notifications[i].isRead) {
+        _notifications[i] = _notifications[i].copyWith(isRead: true);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      await saveToDisk();
+      notifyListeners();
+    }
   }
 
   Future<bool> _sendEmailViaBrevo(String to, String subject, String body) async {

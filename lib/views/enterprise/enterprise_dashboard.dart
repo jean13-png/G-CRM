@@ -7,6 +7,7 @@ import '../../models/prospect.dart';
 import '../../theme.dart';
 import '../auth/role_selection_screen.dart';
 import '../chat/chat_screen.dart';
+import '../notifications/notification_screen.dart';
 
 import 'package:intl/intl.dart';
 
@@ -38,6 +39,45 @@ class _EnterpriseDashboardState extends State<EnterpriseDashboard> {
       appBar: AppBar(
         title: Text(companyName),
         actions: [
+          Stack(
+            children: [
+              IconButton(
+                tooltip: 'Notifications',
+                icon: const Icon(Icons.notifications_none, color: AppTheme.secondaryColor),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const NotificationScreen()),
+                  );
+                },
+              ),
+              if (db.getUnreadNotificationsCount() > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.errorColor,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: Text(
+                      db.getUnreadNotificationsCount().toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           IconButton(
             tooltip: 'Déconnexion',
             icon: const Icon(Icons.logout, color: AppTheme.errorColor),
@@ -319,9 +359,9 @@ class _AnalyticsTab extends StatelessWidget {
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                                 children: [
-                                  _buildMiniStat('OK', callPerf['ok']!, AppTheme.successColor),
-                                  _buildMiniStat('NON', callPerf['non']!, AppTheme.errorColor),
-                                  _buildMiniStat('Indisp.', callPerf['unreachable']!, AppTheme.warningColor),
+                                  _buildMiniStat('Succès', callPerf['ok']!, AppTheme.successColor),
+                                  _buildMiniStat('Refus', callPerf['non']!, AppTheme.errorColor),
+                                  _buildMiniStat('Injoign.', callPerf['unreachable']!, AppTheme.warningColor),
                                   _buildMiniStat('Attente', callPerf['pending']!, AppTheme.textLight),
                                 ],
                               ),
@@ -520,7 +560,7 @@ class _AnalyticsTab extends StatelessWidget {
         ),
         Text(
           label,
-          style: const TextStyle(fontSize: 10, color: AppTheme.textLight),
+          style: const TextStyle(fontSize: 9, color: AppTheme.textLight),
         ),
       ],
     );
@@ -892,7 +932,7 @@ class _HistoryTabState extends State<_HistoryTab> {
                   ...p.callAttempts.map((a) => Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
-                      "- ${DateFormat('dd/MM HH:mm').format(a.timestamp)} : ${a.verdict.toUpperCase()} (${a.note})",
+                      "- ${DateFormat('dd/MM HH:mm').format(a.timestamp)} : ${_translateStatus(a.verdict)} (${a.note})",
                       style: const TextStyle(fontSize: 11),
                     ),
                   )),
@@ -902,6 +942,16 @@ class _HistoryTabState extends State<_HistoryTab> {
         ],
       ),
     );
+  }
+
+  String _translateStatus(String status) {
+    switch (status) {
+      case 'Succès': return 'Succès';
+      case 'Refus': return 'Refus';
+      case 'unreachable': return 'Injoignable';
+      case 'En attente': return 'En attente';
+      default: return status.toUpperCase();
+    }
   }
 
   void _showAssignDialog(BuildContext context, Prospect p) {
@@ -1064,12 +1114,13 @@ class _SettingsTab extends StatefulWidget {
 }
 
 class _SettingsTabState extends State<_SettingsTab> {
-  int _activeSettingIndex = 0; // 0: Form settings, 1: Brevo email settings
+  int _activeSettingIndex = 0; // 0: Form, 1: Email, 2: App Config
   List<ProspectFieldSetting> _tempSettings = [];
   bool _isLoaded = false;
 
   final _apiKeyController = TextEditingController();
   final _senderEmailController = TextEditingController();
+  final _countryCodeController = TextEditingController();
   final _brevoFormKey = GlobalKey<FormState>();
   bool _testingEmail = false;
 
@@ -1077,6 +1128,7 @@ class _SettingsTabState extends State<_SettingsTab> {
   void dispose() {
     _apiKeyController.dispose();
     _senderEmailController.dispose();
+    _countryCodeController.dispose();
     super.dispose();
   }
 
@@ -1086,12 +1138,12 @@ class _SettingsTabState extends State<_SettingsTab> {
     final ent = db.currentEnterprise;
 
     if (ent != null && !_isLoaded) {
-      // Create local copies to modify before saving
       _tempSettings = List<ProspectFieldSetting>.from(
         ent.formSettings.map((x) => x.copyWith()),
       );
       _apiKeyController.text = ent.brevoApiKey;
       _senderEmailController.text = ent.brevoSenderEmail;
+      _countryCodeController.text = ent.defaultCountryCode;
       _isLoaded = true;
     }
 
@@ -1104,45 +1156,32 @@ class _SettingsTabState extends State<_SettingsTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Selector chips
-          Row(
-            children: [
-              Expanded(
-                child: ChoiceChip(
-                  label: const Text("Formulaire", style: TextStyle(fontSize: 12), textAlign: TextAlign.center),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                ChoiceChip(
+                  label: const Text("Formulaire", style: TextStyle(fontSize: 12)),
                   selected: _activeSettingIndex == 0,
-                  selectedColor: AppTheme.primaryColor.withOpacity(0.15),
-                  checkmarkColor: AppTheme.primaryColor,
-                  labelStyle: TextStyle(
-                    color: _activeSettingIndex == 0 ? AppTheme.primaryColor : AppTheme.textLight,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  onSelected: (val) {
-                    if (val) setState(() => _activeSettingIndex = 0);
-                  },
+                  onSelected: (val) => val ? setState(() => _activeSettingIndex = 0) : null,
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ChoiceChip(
-                  label: const Text("Configuration Email", style: TextStyle(fontSize: 12), textAlign: TextAlign.center),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text("Configuration Email", style: TextStyle(fontSize: 12)),
                   selected: _activeSettingIndex == 1,
-                  selectedColor: AppTheme.primaryColor.withOpacity(0.15),
-                  checkmarkColor: AppTheme.primaryColor,
-                  labelStyle: TextStyle(
-                    color: _activeSettingIndex == 1 ? AppTheme.primaryColor : AppTheme.textLight,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  onSelected: (val) {
-                    if (val) setState(() => _activeSettingIndex = 1);
-                  },
+                  onSelected: (val) => val ? setState(() => _activeSettingIndex = 1) : null,
                 ),
-              ),
-            ],
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text("Configuration App", style: TextStyle(fontSize: 12)),
+                  selected: _activeSettingIndex == 2,
+                  onSelected: (val) => val ? setState(() => _activeSettingIndex = 2) : null,
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 20),
 
-          // Content based on selected tab
           if (_activeSettingIndex == 0) ...[
             const Text(
               "Configuration du Formulaire de Prospection",
@@ -1150,11 +1189,10 @@ class _SettingsTabState extends State<_SettingsTab> {
             ),
             const SizedBox(height: 8),
             const Text(
-              "Déterminez les informations que vos agents doivent collecter sur le terrain. Définissez quels champs sont visibles ou obligatoires.",
+              "Déterminez les informations que vos agents doivent collecter sur le terrain.",
               style: TextStyle(color: AppTheme.textLight, fontSize: 12, height: 1.3),
             ),
             const SizedBox(height: 16),
-            
             Card(
               child: ListView.separated(
                 shrinkWrap: true,
@@ -1164,59 +1202,22 @@ class _SettingsTabState extends State<_SettingsTab> {
                 itemBuilder: (context, index) {
                   final field = _tempSettings[index];
                   final isCoreField = field.id == 'nom' || field.id == 'telephone';
-
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              field.label,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                            ),
-                            if (!isCoreField)
-                              Switch(
-                                value: field.enabled,
-                                activeColor: AppTheme.primaryColor,
-                                onChanged: (value) {
-                                  setState(() {
-                                    _tempSettings[index] = field.copyWith(
-                                      enabled: value,
-                                      required: value ? field.required : false,
-                                    );
-                                  });
-                                },
-                              )
-                            else
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.secondaryColor.withOpacity(0.08),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text(
-                                  "Requis",
-                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.secondaryColor),
-                                ),
-                              ),
-                          ],
-                        ),
-                        if (field.enabled && field.id != 'nom' && field.id != 'telephone')
-                          CheckboxListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text("Champ obligatoire", style: TextStyle(fontSize: 13)),
-                            value: field.required,
+                        Text(field.label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        if (!isCoreField)
+                          Switch(
+                            value: field.enabled,
                             activeColor: AppTheme.primaryColor,
-                            controlAffinity: ListTileControlAffinity.leading,
-                            onChanged: (value) {
-                              setState(() {
-                                _tempSettings[index] = field.copyWith(required: value ?? false);
-                              });
-                            },
-                          ),
+                            onChanged: (value) => setState(() {
+                              _tempSettings[index] = field.copyWith(enabled: value, required: value ? field.required : false);
+                            }),
+                          )
+                        else
+                          const Text("Requis", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.secondaryColor)),
                       ],
                     ),
                   );
@@ -1227,34 +1228,18 @@ class _SettingsTabState extends State<_SettingsTab> {
             ElevatedButton.icon(
               onPressed: () async {
                 await db.updateFormSettings(_tempSettings);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("Champs du formulaire enregistrés !"),
-                      backgroundColor: AppTheme.successColor,
-                    ),
-                  );
-                }
+                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Champs du formulaire enregistrés !"), backgroundColor: AppTheme.successColor));
               },
               icon: const Icon(Icons.save),
               label: const Text("Enregistrer les réglages"),
             ),
-          ] else ...[
+          ] else if (_activeSettingIndex == 1) ...[
             const Text(
               "Service d'Envoi d'Email (Brevo API)",
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.secondaryColor),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              "Configurez votre propre clé API Brevo (Sendinblue) pour permettre à vos agents d'envoyer des e-mails de relance réels directement depuis l'application.",
-              style: TextStyle(color: AppTheme.textLight, fontSize: 12, height: 1.4),
-            ),
             const SizedBox(height: 16),
             Card(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: const BorderSide(color: Color(0xFFE0E0E0)),
-              ),
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Form(
@@ -1264,117 +1249,64 @@ class _SettingsTabState extends State<_SettingsTab> {
                     children: [
                       TextFormField(
                         controller: _apiKeyController,
-                        decoration: const InputDecoration(
-                          labelText: "Clé API Brevo v3",
-                          prefixIcon: Icon(Icons.vpn_key_outlined),
-                          hintText: "xkeysib-...",
-                        ),
-                        validator: (v) => v == null || v.trim().isEmpty ? "Entrez votre clé API Brevo" : null,
+                        decoration: const InputDecoration(labelText: "Clé API Brevo v3"),
+                        validator: (v) => v == null || v.trim().isEmpty ? "Clé API requise" : null,
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _senderEmailController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
-                          labelText: "Email de l'expéditeur (Sender)",
-                          prefixIcon: Icon(Icons.alternate_email_outlined),
-                          hintText: "contact@entreprise.com",
-                        ),
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) return "Entrez l'email expéditeur";
-                          if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(v.trim())) {
-                            return "Email invalide";
-                          }
-                          return null;
-                        },
+                        decoration: const InputDecoration(labelText: "Email expéditeur"),
+                        validator: (v) => v == null || v.trim().isEmpty ? "Email requis" : null,
                       ),
                       const SizedBox(height: 20),
                       ElevatedButton.icon(
                         onPressed: () async {
                           if (!_brevoFormKey.currentState!.validate()) return;
-                          await db.updateEnterpriseBrevoSettings(
-                            _apiKeyController.text,
-                            _senderEmailController.text,
-                          );
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text("Configuration Brevo enregistrée avec succès !"),
-                                backgroundColor: AppTheme.successColor,
-                              ),
-                            );
-                          }
+                          await db.updateEnterpriseBrevoSettings(_apiKeyController.text, _senderEmailController.text);
+                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Configuration Brevo enregistrée !"), backgroundColor: AppTheme.successColor));
                         },
                         icon: const Icon(Icons.save),
-                        label: const Text("Enregistrer les configurations"),
+                        label: const Text("Enregistrer"),
                       ),
                     ],
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 20),
-
-            if (ent.brevoApiKey.isNotEmpty && ent.brevoSenderEmail.isNotEmpty) ...[
-              const Text(
-                "Tester la configuration",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppTheme.secondaryColor),
-              ),
-              const SizedBox(height: 8),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        "Envoyer un e-mail de test automatique à votre adresse d'administration (${ent.email}) pour valider vos paramètres API.",
-                        style: const TextStyle(fontSize: 12, color: AppTheme.textDark, height: 1.3),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.secondaryColor,
-                        ),
-                        onPressed: _testingEmail ? null : () async {
-                          setState(() => _testingEmail = true);
-                          final success = await db.sendTestEmail(ent.email);
-                          setState(() => _testingEmail = false);
-                          
-                          if (context.mounted) {
-                            if (success) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text("Email de test envoyé à ${ent.email} ! Vérifiez votre boîte de réception."),
-                                  backgroundColor: AppTheme.successColor,
-                                ),
-                              );
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text("Erreur lors de l'envoi de test. Vérifiez votre clé API et votre email d'expéditeur."),
-                                  backgroundColor: AppTheme.errorColor,
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        icon: _testingEmail 
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Icon(Icons.send),
-                        label: Text(_testingEmail ? "Envoi en cours..." : "Envoyer l'email de test"),
-                      ),
-                    ],
-                  ),
+          ] else if (_activeSettingIndex == 2) ...[
+            const Text(
+              "Configuration de l'Application",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.secondaryColor),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Indicatif pays par défaut", style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    const Text("Utilisé pour formater les numéros vers WhatsApp et SMS.", style: TextStyle(fontSize: 11, color: AppTheme.textLight)),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _countryCodeController,
+                      decoration: const InputDecoration(hintText: "Ex: 229 pour le Bénin", prefixText: "+"),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () async {
+                await db.updateDefaultCountryCode(_countryCodeController.text);
+                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Indicatif pays mis à jour !"), backgroundColor: AppTheme.successColor));
+              },
+              child: const Text("Sauvegarder"),
+            ),
           ],
-          const SizedBox(height: 16),
         ],
       ),
     );

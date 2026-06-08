@@ -15,7 +15,7 @@ class RoleSelectionScreen extends StatelessWidget {
             top: 0,
             left: 0,
             right: 0,
-            height: MediaQuery.of(context).size.height * 0.28,
+            height: MediaQuery.of(context).size.height * 0.25,
             child: ClipRRect(
               borderRadius: const BorderRadius.only(
                 bottomLeft: Radius.circular(40),
@@ -23,23 +23,26 @@ class RoleSelectionScreen extends StatelessWidget {
               ),
               child: Stack(
                 children: [
-                  Image.asset(
-                    'assets/images/banner.png',
-                    width: double.infinity,
-                    height: double.infinity,
-                    fit: BoxFit.fill, // Stretches the image to fill the height and width completely
-                    alignment: Alignment.center,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [AppTheme.secondaryColor, AppTheme.primaryColor],
+                  Transform.scale(
+                    scale: 1.3, // Zoom level
+                    child: Image.asset(
+                      'assets/images/banner.png',
+                      width: double.infinity,
+                      height: double.infinity,
+                      fit: BoxFit.cover,
+                      alignment: Alignment.center,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [AppTheme.secondaryColor, AppTheme.primaryColor],
+                            ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
                   // Slight blur and dark overlay for readability
                   Container(
@@ -51,7 +54,7 @@ class RoleSelectionScreen extends StatelessWidget {
                     child: Padding(
                       padding: EdgeInsets.only(bottom: 20),
                       child: Text(
-                        'BIENVENUE',
+                        '',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 24,
@@ -67,125 +70,127 @@ class RoleSelectionScreen extends StatelessWidget {
           ),
           
           SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(height: MediaQuery.of(context).size.height * 0.16), // Increased from 0.14 to 0.16 to compensate height increase
-                  // App Branding Header
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 10,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                      child: Image.asset(
-                        'assets/images/logo.png',
-                        height: 90,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: const BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(height: MediaQuery.of(context).size.height * 0.14),
+                    // App Branding Header
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 10,
+                              spreadRadius: 2,
                             ),
-                            child: const Icon(
-                              Icons.insights,
-                              size: 50,
-                              color: AppTheme.primaryColor,
-                            ),
-                          );
-                        },
+                          ],
+                        ),
+                        child: Image.asset(
+                          'assets/images/logo.png',
+                          height: 90,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.insights,
+                                size: 50,
+                                color: AppTheme.primaryColor,
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'G-CRM',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.w800,
+                    const SizedBox(height: 20),
+                    const Text(
+                      'G-CRM',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.secondaryColor,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Solution de Prospection & Suivi Client',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.textLight,
+                      ),
+                    ),
+                    const SizedBox(height: 40),
+                    const Text(
+                      'Choisissez votre profil pour continuer',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textDark,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    
+                    // Enterprise Role Button
+                    _buildRoleCard(
+                      context,
+                      title: 'Espace Entreprise',
+                      subtitle: 'Gérer les agents, configurer le formulaire et suivre les performances.',
+                      icon: Icons.business,
                       color: AppTheme.secondaryColor,
-                      letterSpacing: 1.2,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const AuthScreen(role: 'enterprise'),
+                          ),
+                        );
+                      },
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Solution de Prospection & Suivi Client',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.textLight,
+                    const SizedBox(height: 16),
+                    
+                    // Agent Role Button
+                    _buildRoleCard(
+                      context,
+                      title: 'Espace Agent de Terrain',
+                      subtitle: 'Prospecter hors-ligne, appeler les contacts et enregistrer les verdicts.',
+                      icon: Icons.badge,
+                      color: AppTheme.primaryColor,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const AuthScreen(role: 'agent'),
+                          ),
+                        );
+                      },
                     ),
-                  ),
-                  const Spacer(),
-                  const Text(
-                    'Choisissez votre profil pour continuer',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.textDark,
+                    const SizedBox(height: 40),
+                    const Text(
+                      '© 2026 G-CRM. Tous droits réservés.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.textLight,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                  
-                  // Enterprise Role Button
-                  _buildRoleCard(
-                    context,
-                    title: 'Espace Entreprise',
-                    subtitle: 'Gérer les agents, configurer le formulaire et suivre les performances.',
-                    icon: Icons.business,
-                    color: AppTheme.secondaryColor,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const AuthScreen(role: 'enterprise'),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  // Agent Role Button
-                  _buildRoleCard(
-                    context,
-                    title: 'Espace Agent de Terrain',
-                    subtitle: 'Prospecter hors-ligne, appeler les contacts et enregistrer les verdicts.',
-                    icon: Icons.badge,
-                    color: AppTheme.primaryColor,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const AuthScreen(role: 'agent'),
-                        ),
-                      );
-                    },
-                  ),
-                  const Spacer(),
-                  const Text(
-                    '© 2026 G-CRM. Tous droits réservés.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: AppTheme.textLight,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

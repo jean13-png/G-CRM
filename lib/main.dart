@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 import 'dart:async';
 import 'services/database_service.dart';
 import 'models/chat_message.dart';
+import 'models/app_notification.dart';
 import 'views/chat/chat_screen.dart';
+import 'views/notifications/notification_screen.dart';
 import 'theme.dart';
 import 'views/auth/role_selection_screen.dart';
 
@@ -43,20 +45,20 @@ class _MyAppState extends State<MyApp> {
 
   void _setupNotifications() {
     final db = DatabaseService();
-    _notifSubscription = db.onNewMessage.listen((message) {
+    _notifSubscription = db.onNewNotification.listen((notification) {
       // Get the current user context
       final currentUserId = db.currentUserRole == 'enterprise' 
           ? db.currentEnterprise?.id 
           : db.currentAgent?.id;
 
-      // Only notify if the message is for me and I'm not the sender
-      if (message.senderId != currentUserId) {
-        _showInAppNotification(message);
+      // Only notify if the notification is for me
+      if (notification.targetUserId == currentUserId) {
+        _showInAppNotification(notification);
       }
     });
   }
 
-  void _showInAppNotification(ChatMessage message) {
+  void _showInAppNotification(AppNotification notification) {
     final context = _navigatorKey.currentContext;
     if (context != null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -67,7 +69,11 @@ class _MyAppState extends State<MyApp> {
           backgroundColor: AppTheme.secondaryColor,
           content: Row(
             children: [
-              const Icon(Icons.chat_bubble, color: AppTheme.primaryColor, size: 20),
+              Icon(
+                notification.type == 'message' ? Icons.chat : Icons.notifications_active,
+                color: AppTheme.primaryColor, 
+                size: 20
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -75,11 +81,11 @@ class _MyAppState extends State<MyApp> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "Message de ${message.senderName}",
+                      notification.title,
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                     ),
                     Text(
-                      message.content,
+                      notification.body,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 12),
@@ -93,17 +99,24 @@ class _MyAppState extends State<MyApp> {
             label: "VOIR",
             textColor: AppTheme.primaryColor,
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ChatScreen(
-                    agentId: message.agentId,
-                    agentName: DatabaseService().currentUserRole == 'enterprise' 
-                        ? message.senderName 
-                        : (DatabaseService().currentEnterprise?.name ?? "Entreprise"),
+              if (notification.type == 'message' && notification.relatedId != null) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ChatScreen(
+                      agentId: notification.relatedId!,
+                      agentName: DatabaseService().currentUserRole == 'enterprise' 
+                          ? notification.title.replaceFirst("Message de ", "") 
+                          : (DatabaseService().currentEnterprise?.name ?? "Entreprise"),
+                    ),
                   ),
-                ),
-              );
+                );
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const NotificationScreen()),
+                );
+              }
             },
           ),
         ),

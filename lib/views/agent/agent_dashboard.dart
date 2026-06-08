@@ -8,6 +8,7 @@ import '../auth/role_selection_screen.dart';
 import 'prospect_form_screen.dart';
 import 'task_call_screen.dart';
 import '../chat/chat_screen.dart';
+import '../notifications/notification_screen.dart';
 
 class AgentDashboard extends StatefulWidget {
   const AgentDashboard({super.key});
@@ -49,16 +50,56 @@ class _AgentDashboardState extends State<AgentDashboard> {
     final unreachableProspects = db.getUnreachableProspectsForCurrentAgent();
 
     final totalCollected = agentProspects.length;
-    final pendingCalls = assignedProspects.where((x) => x.status == 'pending').length;
-    final okCalls = assignedProspects.where((x) => x.status == 'ok').length;
-    final nonCalls = assignedProspects.where((x) => x.status == 'non').length;
+    final pendingCalls = assignedProspects.where((x) => x.status == 'En attente').length;
+    final okCalls = assignedProspects.where((x) => x.status == 'Succès').length;
+    final nonCalls = assignedProspects.where((x) => x.status == 'Refus').length;
 
     final unreadMessages = db.getUnreadMessagesCount();
+    final unreadNotifs = db.getUnreadNotificationsCount();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text("Espace Agent"),
         actions: [
+          Stack(
+            children: [
+              IconButton(
+                tooltip: 'Notifications',
+                icon: const Icon(Icons.notifications_none, color: AppTheme.secondaryColor),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const NotificationScreen()),
+                  );
+                },
+              ),
+              if (unreadNotifs > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.errorColor,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: Text(
+                      unreadNotifs.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           Stack(
             children: [
               IconButton(
@@ -516,13 +557,13 @@ class _AgentDashboardState extends State<AgentDashboard> {
     Color color;
     String label;
     switch (status) {
-      case 'ok':
+      case 'Succès':
         color = AppTheme.successColor;
-        label = "OK";
+        label = "SUCCÈS";
         break;
-      case 'non':
+      case 'Refus':
         color = AppTheme.errorColor;
-        label = "NON";
+        label = "REFUS";
         break;
       case 'unreachable':
         color = AppTheme.warningColor;
@@ -530,7 +571,7 @@ class _AgentDashboardState extends State<AgentDashboard> {
         break;
       default:
         color = AppTheme.textLight;
-        label = "ATTENTE";
+        label = "EN ATTENTE";
     }
 
     return Container(
@@ -723,7 +764,7 @@ class _AgentTaskHistoryScreenState extends State<_AgentTaskHistoryScreen> {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Text(
-          "Statut: ${p.status.toUpperCase()}",
+          "Statut: ${_translateStatus(p.status)}",
           style: TextStyle(fontSize: 12, color: _getStatusColor(p.status)),
         ),
         children: [
@@ -763,10 +804,20 @@ class _AgentTaskHistoryScreenState extends State<_AgentTaskHistoryScreen> {
     );
   }
 
+  String _translateStatus(String status) {
+    switch (status) {
+      case 'Succès': return 'Succès';
+      case 'Refus': return 'Refus';
+      case 'unreachable': return 'Injoignable';
+      case 'En attente': return 'En attente';
+      default: return status.toUpperCase();
+    }
+  }
+
   Color _getStatusColor(String status) {
     switch (status) {
-      case 'ok': return AppTheme.successColor;
-      case 'non': return AppTheme.errorColor;
+      case 'Succès': return AppTheme.successColor;
+      case 'Refus': return AppTheme.errorColor;
       case 'unreachable': return AppTheme.warningColor;
       default: return AppTheme.textLight;
     }
@@ -774,8 +825,8 @@ class _AgentTaskHistoryScreenState extends State<_AgentTaskHistoryScreen> {
 
   IconData _getStatusIcon(String status) {
     switch (status) {
-      case 'ok': return Icons.check_circle;
-      case 'non': return Icons.cancel;
+      case 'Succès': return Icons.check_circle;
+      case 'Refus': return Icons.cancel;
       case 'unreachable': return Icons.phone_missed;
       default: return Icons.pending;
     }

@@ -87,12 +87,13 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
 
   // Launch WhatsApp Chat
   Future<void> _sendWhatsApp(String phoneNumber) async {
+    final db = Provider.of<DatabaseService>(context, listen: false);
     final message = _selectedTemplate != null 
         ? _selectedTemplate!.content 
         : "Bonjour, je vous contacte suite à notre prospection de terrain.";
     
-    final cleanPhone = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
-    final Uri url = Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encodeComponent(message)}");
+    final formattedPhone = db.formatPhoneNumber(phoneNumber);
+    final Uri url = Uri.parse("https://wa.me/$formattedPhone?text=${Uri.encodeComponent(message)}");
     
     setState(() => _callLaunched = true);
     try {
@@ -113,11 +114,13 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
 
   // Launch SMS
   Future<void> _sendSMS(String phoneNumber) async {
+    final db = Provider.of<DatabaseService>(context, listen: false);
     final message = _selectedTemplate != null 
         ? _selectedTemplate!.content 
         : "Bonjour, je vous contacte pour faire suite à notre échange.";
         
-    final Uri url = Uri.parse("sms:$phoneNumber?body=${Uri.encodeComponent(message)}");
+    final formattedPhone = db.formatPhoneNumber(phoneNumber);
+    final Uri url = Uri.parse("sms:$formattedPhone?body=${Uri.encodeComponent(message)}");
     setState(() => _callLaunched = true);
     try {
       final success = await launchUrl(url);
@@ -194,6 +197,7 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
       context: context,
       isDismissible: false,
       enableDrag: false,
+      isScrollControlled: true,
       builder: (BuildContext context) {
         return Container(
           padding: EdgeInsets.only(
@@ -219,63 +223,57 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.secondaryColor),
                   textAlign: TextAlign.center,
                 ),
-              const SizedBox(height: 8),
-              const Text(
-                "Quel est le résultat de votre échange ?",
-                style: TextStyle(color: AppTheme.textLight, fontSize: 12),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              
-              // Option buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.successColor,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      onPressed: () => _submitVerdict('ok'),
-                      icon: const Icon(Icons.check_circle, size: 18),
-                      label: const Text("OK / Intéressé", style: TextStyle(fontSize: 12)),
-                    ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: _noteController,
+                  decoration: const InputDecoration(
+                    labelText: "Commentaire / Note sur l'appel",
+                    hintText: "Ex: Intéressé, à rappeler demain...",
+                    prefixIcon: Icon(Icons.comment_outlined),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.errorColor,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.successColor,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: () => _submitVerdict('Succès'),
+                        icon: const Icon(Icons.check_circle, size: 18),
+                        label: const Text("SUCCÈS", style: TextStyle(fontSize: 12)),
                       ),
-                      onPressed: () => _submitVerdict('non'),
-                      icon: const Icon(Icons.cancel, size: 18),
-                      label: const Text("NON / Refusé", style: TextStyle(fontSize: 12)),
                     ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.errorColor,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: () => _submitVerdict('Refus'),
+                        icon: const Icon(Icons.cancel, size: 18),
+                        label: const Text("REFUS", style: TextStyle(fontSize: 12)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.warningColor,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    iconColor: Colors.white,
+                    foregroundColor: Colors.white,
                   ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.warningColor,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  onPressed: () => _submitVerdict('unreachable'),
+                  icon: const Icon(Icons.phone_missed, size: 18),
+                  label: const Text("INJOIGNABLE / À RELANCER", style: TextStyle(fontSize: 12)),
                 ),
-                onPressed: () => _submitVerdict('unreachable'),
-                icon: const Icon(Icons.phone_missed, size: 18),
-                label: const Text("Indisponible / Inaccessible", style: TextStyle(fontSize: 12)),
-              ),
-              const SizedBox(height: 16),
-              
-              // Comment / Note
-              TextFormField(
-                controller: _noteController,
-                decoration: const InputDecoration(
-                  labelText: "Commentaire / Note (Optionnel)",
-                  prefixIcon: Icon(Icons.comment_outlined),
-                ),
-              ),
-              const SizedBox(height: 20),
+                const SizedBox(height: 20),
               ],
             ),
           ),
@@ -308,6 +306,7 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
       if (context.mounted) {
         setState(() {
           _currentIndex++;
+          _callLaunched = false;
         });
 
         if (_currentIndex >= widget.prospectsToCall.length) {
@@ -316,6 +315,16 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
         }
       }
     });
+  }
+
+  String _getTranslatedStatus(String status) {
+    switch (status) {
+      case 'Succès': return 'Succès';
+      case 'Refus': return 'Refus';
+      case 'unreachable': return 'Injoignable';
+      case 'En attente': return 'En attente';
+      default: return status.toUpperCase();
+    }
   }
 
   void _showCompletionDialog() {
