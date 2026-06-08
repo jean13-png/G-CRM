@@ -15,7 +15,7 @@ class RoleSelectionScreen extends StatelessWidget {
             top: 0,
             left: 0,
             right: 0,
-            height: MediaQuery.of(context).size.height * 0.28, // Increased from 0.25 to 0.28
+            height: MediaQuery.of(context).size.height * 0.28,
             child: ClipRRect(
               borderRadius: const BorderRadius.only(
                 bottomLeft: Radius.circular(40),
@@ -23,26 +23,23 @@ class RoleSelectionScreen extends StatelessWidget {
               ),
               child: Stack(
                 children: [
-                  Transform.scale(
-                    scale: 1.15, // Reduced zoom level from 1.3 to 1.15
-                    child: Image.asset(
-                      'assets/images/banner.png',
-                      width: double.infinity,
-                      height: double.infinity,
-                      fit: BoxFit.cover,
-                      alignment: Alignment.center,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [AppTheme.secondaryColor, AppTheme.primaryColor],
-                            ),
+                  Image.asset(
+                    'assets/images/banner.png',
+                    width: double.infinity,
+                    height: double.infinity,
+                    fit: BoxFit.fill, // Stretches the image to fill the height and width completely
+                    alignment: Alignment.center,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [AppTheme.secondaryColor, AppTheme.primaryColor],
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    },
                   ),
                   // Slight blur and dark overlay for readability
                   Container(
