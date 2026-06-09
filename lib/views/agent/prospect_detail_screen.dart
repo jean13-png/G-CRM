@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../models/prospect.dart';
 import '../../models/agent.dart';
+import '../../models/enterprise.dart';
 import '../../services/database_service.dart';
 import '../../services/pdf_service.dart';
 import '../../theme.dart';
@@ -21,6 +23,17 @@ class _ProspectDetailScreenState extends State<ProspectDetailScreen> {
   final _decisionController = TextEditingController();
   final _suiviResumeController = TextEditingController();
   bool _isSaving = false;
+  MessageTemplate? _selectedTemplate;
+
+  @override
+  void initState() {
+    super.initState();
+    // Set first template as default if available
+    final db = Provider.of<DatabaseService>(context, listen: false);
+    if (db.currentEnterprise?.messageTemplates.isNotEmpty ?? false) {
+      _selectedTemplate = db.currentEnterprise!.messageTemplates.first;
+    }
+  }
 
   @override
   void dispose() {
@@ -70,6 +83,20 @@ class _ProspectDetailScreenState extends State<ProspectDetailScreen> {
                   children: [
                     _buildInfoTile(Icons.person, "Nom Complet", prospect.name, Colors.white),
                     _buildInfoTile(Icons.phone, "Téléphone", prospect.phone, Colors.white),
+                    if (prospect.isWhatsApp)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 24, bottom: 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.chat_bubble_outline, size: 14, color: Colors.green.shade300),
+                            const SizedBox(width: 8),
+                            Text(
+                              "Numéro WhatsApp confirmé",
+                              style: TextStyle(color: Colors.green.shade300, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
                     _buildInfoTile(Icons.calendar_today, "Créé le", DateFormat('dd/MM/yyyy HH:mm').format(prospect.createdAt), Colors.white),
                     if (db.currentUserRole == 'enterprise')
                       _buildInfoTile(Icons.badge, "Agent Responsable", agent.name, Colors.orangeAccent),
@@ -77,6 +104,68 @@ class _ProspectDetailScreenState extends State<ProspectDetailScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 24),
+
+            // CONTACT ACTIONS (For Enterprise and Agents)
+            const Text(
+              "CONTACTER LE PROSPECT",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.secondaryColor),
+            ),
+            const SizedBox(height: 12),
+            
+            // Template Selector (If available)
+            if (db.currentEnterprise?.messageTemplates.isNotEmpty ?? false) ...[
+              DropdownButtonFormField<MessageTemplate>(
+                isExpanded: true,
+                value: _selectedTemplate,
+                decoration: const InputDecoration(
+                  labelText: "Modèle de message",
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                items: db.currentEnterprise!.messageTemplates.map((t) {
+                  return DropdownMenuItem<MessageTemplate>(
+                    value: t,
+                    child: Text(t.title, style: const TextStyle(fontSize: 13)),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  setState(() => _selectedTemplate = val);
+                },
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _makeCall(prospect.phone),
+                    icon: const Icon(Icons.phone),
+                    label: const Text("Appel"),
+                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.secondaryColor),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _sendWhatsApp(db, prospect.phone),
+                    icon: const Icon(Icons.chat_bubble_outline),
+                    label: const Text("WhatsApp"),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _sendSMS(db, prospect.phone),
+                    icon: const Icon(Icons.sms),
+                    label: const Text("SMS"),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+                  ),
+                ),
+              ],
+            ),
+
             const SizedBox(height: 24),
 
             const Text(
@@ -184,6 +273,61 @@ class _ProspectDetailScreenState extends State<ProspectDetailScreen> {
         ],
       ),
     );
+  }
+
+  // --- CONTACT METHODS ---
+
+  Future<void> _makeCall(String phoneNumber) async {
+    final Uri url = Uri.parse("tel:$phoneNumber");
+    try {
+      final success = await launchUrl(url);
+      if (!success) throw 'Could not launch $url';
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Impossible de lancer l'appel direct."), backgroundColor: AppTheme.errorColor),
+        );
+      }
+    }
+  }
+
+  Future<void> _sendWhatsApp(DatabaseService db, String phoneNumber) async {
+    final message = _selectedTemplate != null 
+        ? _selectedTemplate!.content 
+        : "Bonjour, je vous contacte suite à notre échange G-CRM.";
+    
+    final formattedPhone = db.formatPhoneNumber(phoneNumber);
+    final Uri url = Uri.parse("https://wa.me/$formattedPhone?text=${Uri.encodeComponent(message)}");
+    
+    try {
+      final success = await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (!success) throw 'Could not launch $url';
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Impossible d'ouvrir WhatsApp."), backgroundColor: AppTheme.errorColor),
+        );
+      }
+    }
+  }
+
+  Future<void> _sendSMS(DatabaseService db, String phoneNumber) async {
+    final message = _selectedTemplate != null 
+        ? _selectedTemplate!.content 
+        : "Bonjour, je vous contacte suite à notre échange G-CRM.";
+        
+    final formattedPhone = db.formatPhoneNumber(phoneNumber);
+    final Uri url = Uri.parse("sms:$formattedPhone?body=${Uri.encodeComponent(message)}");
+    try {
+      final success = await launchUrl(url);
+      if (!success) throw 'Could not launch $url';
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Impossible d'ouvrir l'application SMS."), backgroundColor: AppTheme.errorColor),
+        );
+      }
+    }
   }
 
   void _showSuiviEditDialog(BuildContext context, int index, Suivi suivi) {

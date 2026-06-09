@@ -1,0 +1,81 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "chatMessages",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "enterpriseId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "agentId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "timestamp",
+          "order": "ASCENDING"
+        }
+      ],
+      "apiScope": "MONGODB_COMPATIBLE_API",
+      "density": "DENSE",
+      "multikey": true
+    },
+    {
+      "collectionGroup": "prospects",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "agentId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ],
+      "apiScope": "MONGODB_COMPATIBLE_API",
+      "density": "DENSE",
+      "multikey": true
+    },
+    {
+      "collectionGroup": "prospects",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "enterpriseId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ],
+      "apiScope": "MONGODB_COMPATIBLE_API",
+      "density": "DENSE",
+      "multikey": true
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "agentId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "assignedAt",
+          "order": "DESCENDING"
+        }
+      ],
+      "apiScope": "MONGODB_COMPATIBLE_API",
+      "density": "DENSE",
+      "multikey": true
+    }
+  ],
+  "fieldOverrides": []
+}

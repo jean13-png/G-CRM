@@ -401,6 +401,31 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
                     padding: const EdgeInsets.all(24.0),
                     child: Column(
                       children: [
+                        if (prospect.isWhatsApp)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: Colors.green.shade200),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.chat_bubble_outline, color: Colors.green, size: 16),
+                                SizedBox(width: 8),
+                                Text(
+                                  "Numéro WhatsApp",
+                                  style: TextStyle(
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         CircleAvatar(
                           radius: 36,
                           backgroundColor: AppTheme.primaryColor.withOpacity(0.1),

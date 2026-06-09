@@ -1,0 +1,51 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Fonctions d'aide pour simplifier les règles
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // Règles pour la collection Entreprises
+    match /enterprises/{enterpriseId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && isOwner(enterpriseId);
+    }
+
+    // Règles pour la collection Agents
+    match /agents/{agentId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Règles pour les Prospects
+    match /prospects/{prospectId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Règles pour les Tâches
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Règles pour le Chat
+    match /chatMessages/{messageId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Règles pour les Notifications
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && request.auth.uid == resource.data.targetUserId;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && request.auth.uid == resource.data.targetUserId;
+    }
+  }
+}

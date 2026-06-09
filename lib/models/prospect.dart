@@ -64,6 +64,7 @@ class Prospect {
   final List<Suivi> suivis; // Strictly 8 slots
   final String observation;
   final String decision;
+  final bool isWhatsApp;
   final DateTime createdAt;
   final bool isSynced; // Local vs Firebase synchronization state
 
@@ -77,6 +78,7 @@ class Prospect {
     List<Suivi>? suivis,
     this.observation = '',
     this.decision = '',
+    this.isWhatsApp = false,
     required this.createdAt,
     this.isSynced = false,
   }) : suivis = suivis ?? List.generate(8, (_) => Suivi());
@@ -91,6 +93,7 @@ class Prospect {
     List<Suivi>? suivis,
     String? observation,
     String? decision,
+    bool? isWhatsApp,
     DateTime? createdAt,
     bool? isSynced,
   }) {
@@ -104,6 +107,7 @@ class Prospect {
       suivis: suivis ?? this.suivis,
       observation: observation ?? this.observation,
       decision: decision ?? this.decision,
+      isWhatsApp: isWhatsApp ?? this.isWhatsApp,
       createdAt: createdAt ?? this.createdAt,
       isSynced: isSynced ?? this.isSynced,
     );
@@ -120,6 +124,7 @@ class Prospect {
       'suivis': suivis.map((x) => x.toMap()).toList(),
       'observation': observation,
       'decision': decision,
+      'isWhatsApp': isWhatsApp,
       'createdAt': createdAt.toIso8601String(),
       'isSynced': isSynced,
     };
@@ -141,6 +146,7 @@ class Prospect {
           : List.generate(8, (_) => Suivi()),
       observation: map['observation'] ?? '',
       decision: map['decision'] ?? '',
+      isWhatsApp: map['isWhatsApp'] ?? false,
       createdAt: map['createdAt'] != null
           ? DateTime.parse(map['createdAt'])
           : DateTime.now(),

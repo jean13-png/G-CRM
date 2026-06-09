@@ -19,6 +19,7 @@ class _ProspectFormScreenState extends State<ProspectFormScreen> {
   
   // Settings
   bool _autoMode = false;
+  bool _isWhatsApp = false;
   final List<Prospect> _sessionProspects = []; // prospects collected in this screen session
 
   @override
@@ -50,6 +51,9 @@ class _ProspectFormScreenState extends State<ProspectFormScreen> {
     for (var controller in _controllers.values) {
       controller.clear();
     }
+    setState(() {
+      _isWhatsApp = false;
+    });
   }
 
   Future<void> _saveProspect() async {
@@ -64,7 +68,7 @@ class _ProspectFormScreenState extends State<ProspectFormScreen> {
     });
 
     // Save to DatabaseService
-    await db.addProspect(prospectData);
+    await db.addProspect(prospectData, isWhatsApp: _isWhatsApp);
 
     // Keep track of it in local session
     final latestProspect = db.allProspects.last;
@@ -254,6 +258,24 @@ class _ProspectFormScreenState extends State<ProspectFormScreen> {
                           );
                         }).toList(),
                       ),
+                    ),
+                    // WhatsApp Checkbox
+                    CheckboxListTile(
+                      title: const Text(
+                        "C'est un numéro WhatsApp",
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: const Text(
+                        "Cochez si vous savez que ce prospect utilise WhatsApp",
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      value: _isWhatsApp,
+                      activeColor: Colors.green,
+                      secondary: const Icon(Icons.chat_bubble_outline, color: Colors.green),
+                      contentPadding: EdgeInsets.zero,
+                      onChanged: (val) {
+                        setState(() => _isWhatsApp = val ?? false);
+                      },
                     ),
                     const SizedBox(height: 16),
                     ElevatedButton.icon(

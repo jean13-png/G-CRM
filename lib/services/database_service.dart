@@ -792,7 +792,7 @@ class DatabaseService extends ChangeNotifier {
   // ================= AGENT ACTIONS =================
 
   // Add a prospect (Field)
-  Future<void> addProspect(Map<String, String> data) async {
+  Future<void> addProspect(Map<String, String> data, {bool isWhatsApp = false}) async {
     if (_currentAgent == null) return;
     final prospectId = "prospect_${DateTime.now().millisecondsSinceEpoch}";
     final enterpriseId = _currentAgent!.enterpriseId;
@@ -807,6 +807,7 @@ class DatabaseService extends ChangeNotifier {
       agentId: _currentAgent!.id,
       data: data,
       status: 'pending',
+      isWhatsApp: isWhatsApp,
       createdAt: DateTime.now(),
       isSynced: true,
     );
