@@ -9,8 +9,16 @@ import 'views/notifications/notification_screen.dart';
 import 'theme.dart';
 import 'views/auth/role_selection_screen.dart';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   
   // Create and initialize the database service
   final databaseService = DatabaseService();

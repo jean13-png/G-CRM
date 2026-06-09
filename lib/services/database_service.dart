@@ -5,13 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
 import 'package:http/http.dart' as http;
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/enterprise.dart';
 import '../models/agent.dart';
 import '../models/prospect.dart';
 import '../models/task.dart';
 import '../models/chat_message.dart';
 import '../models/app_notification.dart';
-
 
 class DatabaseService extends ChangeNotifier {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -23,20 +25,25 @@ class DatabaseService extends ChangeNotifier {
   Agent? _currentAgent;
   String? _currentUserRole; // 'enterprise' or 'agent'
 
-  // Collections (In-Memory database)
+  // Collections (Cached from Firestore)
   final Map<String, Enterprise> _enterprises = {};
   final Map<String, Agent> _agents = {};
   final Map<String, Prospect> _prospects = {};
   final Map<String, Task> _tasks = {};
   final List<ChatMessage> _chatMessages = [];
   final List<AppNotification> _notifications = [];
-
-  // For credentials matching in offline/mock mode
-  // key: email, value: {password, id, role}
-  final Map<String, Map<String, String>> _credentials = {};
+  final Set<String> _notifiedIds = {};
 
   bool _initialized = false;
   bool get isInitialized => _initialized;
+
+  // Stream Subscriptions
+  StreamSubscription? _agentsSubscription;
+  StreamSubscription? _prospectsSubscription;
+  StreamSubscription? _tasksSubscription;
+  StreamSubscription? _messagesSubscription;
+  StreamSubscription? _notificationsSubscription;
+  StreamSubscription? _enterpriseSubscription;
 
   // Getters
   Enterprise? get currentEnterprise => _currentEnterprise;
@@ -51,319 +58,387 @@ class DatabaseService extends ChangeNotifier {
   List<ChatMessage> get allChatMessages => List.unmodifiable(_chatMessages);
   List<AppNotification> get allNotifications => List.unmodifiable(_notifications);
 
-  // Get path to local database file
-  Future<File> get _localFile async {
-    final directory = await getApplicationDocumentsDirectory();
-    return File('${directory.path}/g_crm_database.json');
-  }
-
-  // Initialize service & load local database
+  // Initialize service & check Firebase auth status
   Future<void> initialize() async {
     if (_initialized) return;
     try {
-      final file = await _localFile;
-      if (await file.exists()) {
-        final jsonString = await file.readAsString();
-        final data = json.decode(jsonString);
-
-        // Load Enterprises
-        if (data['enterprises'] != null) {
-          final Map<String, dynamic> ents = data['enterprises'];
-          ents.forEach((k, v) {
-            _enterprises[k] = Enterprise.fromMap(v);
-          });
-        }
-
-        // Load Agents
-        if (data['agents'] != null) {
-          final Map<String, dynamic> ags = data['agents'];
-          ags.forEach((k, v) {
-            _agents[k] = Agent.fromMap(v);
-          });
-        }
-
-        // Load Prospects
-        if (data['prospects'] != null) {
-          final Map<String, dynamic> pros = data['prospects'];
-          pros.forEach((k, v) {
-            _prospects[k] = Prospect.fromMap(v);
-          });
-        }
-
-        // Load Tasks
-        if (data['tasks'] != null) {
-          final Map<String, dynamic> tks = data['tasks'];
-          tks.forEach((k, v) {
-            _tasks[k] = Task.fromMap(v);
-          });
-        }
-
-        // Load Chat Messages
-        if (data['chatMessages'] != null) {
-          final List<dynamic> chats = data['chatMessages'];
-          for (var v in chats) {
-            _chatMessages.add(ChatMessage.fromMap(v));
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final userId = user.uid;
+        // Check if user is enterprise
+        final entDoc = await FirebaseFirestore.instance.collection('enterprises').doc(userId).get();
+        if (entDoc.exists && entDoc.data() != null) {
+          _currentUserRole = 'enterprise';
+          _currentEnterprise = Enterprise.fromMap(entDoc.data()!);
+          _enterprises[userId] = _currentEnterprise!;
+          _currentAgent = null;
+          _initializeListeners('enterprise', userId, userId);
+        } else {
+          // Check if user is agent
+          final agentDoc = await FirebaseFirestore.instance.collection('agents').doc(userId).get();
+          if (agentDoc.exists && agentDoc.data() != null) {
+            _currentUserRole = 'agent';
+            _currentAgent = Agent.fromMap(agentDoc.data()!);
+            _agents[userId] = _currentAgent!;
+            
+            // Get corresponding enterprise
+            final entId = _currentAgent!.enterpriseId;
+            final agentEntDoc = await FirebaseFirestore.instance.collection('enterprises').doc(entId).get();
+            if (agentEntDoc.exists && agentEntDoc.data() != null) {
+              _currentEnterprise = Enterprise.fromMap(agentEntDoc.data()!);
+              _enterprises[entId] = _currentEnterprise!;
+            }
+            _initializeListeners('agent', userId, entId);
+          } else {
+            // Out of sync, sign out
+            await FirebaseAuth.instance.signOut();
           }
         }
-
-        // Load Notifications
-        if (data['notifications'] != null) {
-          final List<dynamic> notifs = data['notifications'];
-          for (var v in notifs) {
-            _notifications.add(AppNotification.fromMap(v));
-          }
-        }
-
-        // Load Credentials
-        if (data['credentials'] != null) {
-          final Map<String, dynamic> creds = data['credentials'];
-          creds.forEach((k, v) {
-            _credentials[k] = Map<String, String>.from(v);
-          });
-        }
-      } else {
-        // Initialize with demo data if empty
-        _loadDemoData();
-        await saveToDisk();
       }
     } catch (e) {
-      debugPrint("Error loading local database: $e");
-      _loadDemoData();
+      debugPrint("Error initializing Firebase DatabaseService: $e");
     }
     _initialized = true;
     notifyListeners();
   }
 
-  // Save memory database to disk
-  Future<void> saveToDisk() async {
-    try {
-      final file = await _localFile;
-      final Map<String, dynamic> dbDump = {
-        'enterprises': _enterprises.map((k, v) => MapEntry(k, v.toMap())),
-        'agents': _agents.map((k, v) => MapEntry(k, v.toMap())),
-        'prospects': _prospects.map((k, v) => MapEntry(k, v.toMap())),
-        'tasks': _tasks.map((k, v) => MapEntry(k, v.toMap())),
-        'chatMessages': _chatMessages.map((v) => v.toMap()).toList(),
-        'notifications': _notifications.map((v) => v.toMap()).toList(),
-        'credentials': _credentials,
-      };
-      await file.writeAsString(json.encode(dbDump), flush: true);
-    } catch (e) {
-      debugPrint("Error writing database to disk: $e");
-    }
+  // Cancel all active Firestore subscriptions
+  void _cancelAllSubscriptions() {
+    _agentsSubscription?.cancel();
+    _prospectsSubscription?.cancel();
+    _tasksSubscription?.cancel();
+    _messagesSubscription?.cancel();
+    _notificationsSubscription?.cancel();
+    _enterpriseSubscription?.cancel();
   }
 
-  // Load sample demo data
-  void _loadDemoData() {
-    // Demo enterprise
-    final entId = "demo_enterprise";
-    final demoEnt = Enterprise(
-      id: entId,
-      name: "Sup'Elite Formation",
-      email: "direction@supelite.com",
-      formSettings: Enterprise.defaultSettings,
-    );
-    _enterprises[entId] = demoEnt;
-    _credentials["direction@supelite.com"] = {
-      "password": "password",
-      "id": entId,
-      "role": "enterprise",
-    };
+  // Set up real-time sync listeners based on user role
+  void _initializeListeners(String role, String userId, String enterpriseId) {
+    _cancelAllSubscriptions();
+    final firestore = FirebaseFirestore.instance;
 
-    // Demo agents
-    final agentId1 = "agent_1";
-    final demoAgent1 = Agent(
-      id: agentId1,
-      enterpriseId: entId,
-      name: "Koffi Mensah",
-      email: "koffi@supelite.com",
-      createdAt: DateTime.now().subtract(const Duration(days: 10)),
-    );
-    _agents[agentId1] = demoAgent1;
-    _credentials["koffi@supelite.com"] = {
-      "password": "password",
-      "id": agentId1,
-      "role": "agent",
-    };
+    // Listen to Notifications
+    _notificationsSubscription = firestore
+        .collection('notifications')
+        .where('targetUserId', isEqualTo: userId)
+        .snapshots()
+        .listen((snapshot) {
+      _notifications.clear();
+      for (var doc in snapshot.docs) {
+        try {
+          final notif = AppNotification.fromMap(doc.data());
+          _notifications.add(notif);
 
-    final agentId2 = "agent_2";
-    final demoAgent2 = Agent(
-      id: agentId2,
-      enterpriseId: entId,
-      name: "Awa Diop",
-      email: "awa@supelite.com",
-      createdAt: DateTime.now().subtract(const Duration(days: 5)),
-    );
-    _agents[agentId2] = demoAgent2;
-    _credentials["awa@supelite.com"] = {
-      "password": "password",
-      "id": agentId2,
-      "role": "agent",
-    };
+          // If unread and not yet popped up in this session, trigger in-app alert stream
+          if (!notif.isRead && !_notifiedIds.contains(notif.id)) {
+            _notifiedIds.add(notif.id);
+            _notifyNewAppNotification(notif);
+          }
+        } catch (e) {
+          debugPrint("Error parsing notification: $e");
+        }
+      }
+      notifyListeners();
+    });
 
-    // Demo prospects
-    final p1 = Prospect(
-      id: "p1",
-      enterpriseId: entId,
-      agentId: agentId1,
-      data: {
-        "nom": "Soglo",
-        "prenom": "Hubert",
-        "telephone": "+22997000001",
-        "email": "hubert.soglo@example.com",
-        "entreprise": "Soglo Services",
-        "note": "Intéressé par formation management"
-      },
-      status: "pending",
-      createdAt: DateTime.now().subtract(const Duration(days: 2)),
-    );
-    _prospects[p1.id] = p1;
+    if (role == 'enterprise') {
+      // Listen to Enterprise settings
+      _enterpriseSubscription = firestore
+          .collection('enterprises')
+          .doc(userId)
+          .snapshots()
+          .listen((snapshot) {
+        if (snapshot.exists && snapshot.data() != null) {
+          _currentEnterprise = Enterprise.fromMap(snapshot.data()!);
+          _enterprises[userId] = _currentEnterprise!;
+          notifyListeners();
+        }
+      });
 
-    final p2 = Prospect(
-      id: "p2",
-      enterpriseId: entId,
-      agentId: agentId1,
-      data: {
-        "nom": "Toure",
-        "prenom": "Aminata",
-        "telephone": "+22997000002",
-        "email": "aminata@example.com",
-        "entreprise": "Toure Shop",
-        "note": "Rappeler le soir"
-      },
-      status: "unreachable",
-      callAttempts: [
-        CallAttempt(
-          timestamp: DateTime.now().subtract(const Duration(hours: 3)),
-          verdict: 'unreachable',
-          note: 'Numéro sonne mais pas de réponse',
-        )
-      ],
-      createdAt: DateTime.now().subtract(const Duration(days: 2)),
-    );
-    _prospects[p2.id] = p2;
+      // Listen to Agents
+      _agentsSubscription = firestore
+          .collection('agents')
+          .where('enterpriseId', isEqualTo: enterpriseId)
+          .snapshots()
+          .listen((snapshot) {
+        _agents.clear();
+        for (var doc in snapshot.docs) {
+          try {
+            final agent = Agent.fromMap(doc.data());
+            _agents[agent.id] = agent;
+          } catch (e) {
+            debugPrint("Error parsing agent: $e");
+          }
+        }
+        notifyListeners();
+      });
 
-    final p3 = Prospect(
-      id: "p3",
-      enterpriseId: entId,
-      agentId: agentId1,
-      data: {
-        "nom": "Gomez",
-        "prenom": "Carlos",
-        "telephone": "+22997000003",
-        "email": "",
-        "entreprise": "Atelier Gomez",
-        "note": "Pas intéressé pour le moment"
-      },
-      status: "non",
-      callAttempts: [
-        CallAttempt(
-          timestamp: DateTime.now().subtract(const Duration(hours: 1)),
-          verdict: 'non',
-          note: 'Trop cher',
-        )
-      ],
-      createdAt: DateTime.now().subtract(const Duration(days: 1)),
-    );
-    _prospects[p3.id] = p3;
+      // Listen to Prospects
+      _prospectsSubscription = firestore
+          .collection('prospects')
+          .where('enterpriseId', isEqualTo: enterpriseId)
+          .snapshots()
+          .listen((snapshot) {
+        _prospects.clear();
+        for (var doc in snapshot.docs) {
+          try {
+            final prospect = Prospect.fromMap(doc.data());
+            _prospects[prospect.id] = prospect;
+          } catch (e) {
+            debugPrint("Error parsing prospect: $e");
+          }
+        }
+        notifyListeners();
+      });
 
-    // Demo tasks
-    final t1 = Task(
-      id: "task_demo_1",
-      enterpriseId: entId,
-      agentId: agentId1,
-      prospectIds: ["p1", "p2", "p3"],
-      assignedAt: DateTime.now().subtract(const Duration(days: 1)),
-      status: "pending",
-    );
-    _tasks[t1.id] = t1;
+      // Listen to Tasks
+      _tasksSubscription = firestore
+          .collection('tasks')
+          .where('enterpriseId', isEqualTo: enterpriseId)
+          .snapshots()
+          .listen((snapshot) {
+        _tasks.clear();
+        for (var doc in snapshot.docs) {
+          try {
+            final task = Task.fromMap(doc.data());
+            _tasks[task.id] = task;
+          } catch (e) {
+            debugPrint("Error parsing task: $e");
+          }
+        }
+        notifyListeners();
+      });
+
+      // Listen to Chat Messages
+      _messagesSubscription = firestore
+          .collection('chatMessages')
+          .where('enterpriseId', isEqualTo: enterpriseId)
+          .snapshots()
+          .listen((snapshot) {
+        _chatMessages.clear();
+        for (var doc in snapshot.docs) {
+          try {
+            _chatMessages.add(ChatMessage.fromMap(doc.data()));
+          } catch (e) {
+            debugPrint("Error parsing chat message: $e");
+          }
+        }
+        notifyListeners();
+      });
+
+    } else if (role == 'agent') {
+      // Listen to Agent profile
+      _agentsSubscription = firestore
+          .collection('agents')
+          .doc(userId)
+          .snapshots()
+          .listen((snapshot) {
+        if (snapshot.exists && snapshot.data() != null) {
+          _currentAgent = Agent.fromMap(snapshot.data()!);
+          _agents[userId] = _currentAgent!;
+          notifyListeners();
+        }
+      });
+
+      // Listen to Enterprise settings
+      _enterpriseSubscription = firestore
+          .collection('enterprises')
+          .doc(enterpriseId)
+          .snapshots()
+          .listen((snapshot) {
+        if (snapshot.exists && snapshot.data() != null) {
+          _currentEnterprise = Enterprise.fromMap(snapshot.data()!);
+          _enterprises[enterpriseId] = _currentEnterprise!;
+          notifyListeners();
+        }
+      });
+
+      // Listen to Prospects assigned to this agent
+      _prospectsSubscription = firestore
+          .collection('prospects')
+          .where('agentId', isEqualTo: userId)
+          .snapshots()
+          .listen((snapshot) {
+        _prospects.clear();
+        for (var doc in snapshot.docs) {
+          try {
+            final prospect = Prospect.fromMap(doc.data());
+            _prospects[prospect.id] = prospect;
+          } catch (e) {
+            debugPrint("Error parsing prospect: $e");
+          }
+        }
+        notifyListeners();
+      });
+
+      // Listen to Tasks assigned to this agent
+      _tasksSubscription = firestore
+          .collection('tasks')
+          .where('agentId', isEqualTo: userId)
+          .snapshots()
+          .listen((snapshot) {
+        _tasks.clear();
+        for (var doc in snapshot.docs) {
+          try {
+            final task = Task.fromMap(doc.data());
+            _tasks[task.id] = task;
+          } catch (e) {
+            debugPrint("Error parsing task: $e");
+          }
+        }
+        notifyListeners();
+      });
+
+      // Listen to Chat messages involving this agent
+      _messagesSubscription = firestore
+          .collection('chatMessages')
+          .where('agentId', isEqualTo: userId)
+          .snapshots()
+          .listen((snapshot) {
+        _chatMessages.clear();
+        for (var doc in snapshot.docs) {
+          try {
+            _chatMessages.add(ChatMessage.fromMap(doc.data()));
+          } catch (e) {
+            debugPrint("Error parsing chat message: $e");
+          }
+        }
+        notifyListeners();
+      });
+    }
   }
 
   // ================= AUTHENTICATION ACTIONS =================
 
   Future<bool> signIn(String email, String password, String role) async {
-    final credentials = _credentials[email.trim().toLowerCase()];
-    if (credentials != null &&
-        credentials['password'] == password &&
-        credentials['role'] == role) {
-      _currentUserRole = role;
+    try {
+      final UserCredential creds = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+      final userId = creds.user!.uid;
+
       if (role == 'enterprise') {
-        _currentEnterprise = _enterprises[credentials['id']];
-        _currentAgent = null;
+        final entDoc = await FirebaseFirestore.instance.collection('enterprises').doc(userId).get();
+        if (entDoc.exists && entDoc.data() != null) {
+          _currentUserRole = 'enterprise';
+          _currentEnterprise = Enterprise.fromMap(entDoc.data()!);
+          _enterprises[userId] = _currentEnterprise!;
+          _currentAgent = null;
+          _initializeListeners('enterprise', userId, userId);
+          notifyListeners();
+          return true;
+        } else {
+          await FirebaseAuth.instance.signOut();
+          return false;
+        }
       } else {
-        _currentAgent = _agents[credentials['id']];
-        _currentEnterprise = _enterprises[_currentAgent?.enterpriseId];
+        final agentDoc = await FirebaseFirestore.instance.collection('agents').doc(userId).get();
+        if (agentDoc.exists && agentDoc.data() != null) {
+          _currentUserRole = 'agent';
+          _currentAgent = Agent.fromMap(agentDoc.data()!);
+          _agents[userId] = _currentAgent!;
+          
+          final entId = _currentAgent!.enterpriseId;
+          final agentEntDoc = await FirebaseFirestore.instance.collection('enterprises').doc(entId).get();
+          if (agentEntDoc.exists && agentEntDoc.data() != null) {
+            _currentEnterprise = Enterprise.fromMap(agentEntDoc.data()!);
+            _enterprises[entId] = _currentEnterprise!;
+          }
+          _initializeListeners('agent', userId, entId);
+          notifyListeners();
+          return true;
+        } else {
+          await FirebaseAuth.instance.signOut();
+          return false;
+        }
       }
-      notifyListeners();
-      return true;
+    } catch (e) {
+      debugPrint("Sign in error: $e");
+      return false;
     }
-    return false;
   }
 
   Future<bool> signUpEnterprise(String name, String email, String password) async {
-    final cleanEmail = email.trim().toLowerCase();
-    if (_credentials.containsKey(cleanEmail)) {
-      return false; // Email already in use
+    try {
+      final cleanEmail = email.trim().toLowerCase();
+      final UserCredential creds = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: cleanEmail,
+        password: password,
+      );
+      final userId = creds.user!.uid;
+
+      final enterprise = Enterprise(
+        id: userId,
+        name: name.trim(),
+        email: cleanEmail,
+        formSettings: Enterprise.defaultSettings,
+      );
+
+      await FirebaseFirestore.instance.collection('enterprises').doc(userId).set(enterprise.toMap());
+
+      _currentUserRole = 'enterprise';
+      _currentEnterprise = enterprise;
+      _enterprises[userId] = enterprise;
+      _currentAgent = null;
+
+      _initializeListeners('enterprise', userId, userId);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint("Sign up enterprise error: $e");
+      return false;
     }
-
-    final newId = "enterprise_${DateTime.now().millisecondsSinceEpoch}";
-    final enterprise = Enterprise(
-      id: newId,
-      name: name.trim(),
-      email: cleanEmail,
-      formSettings: Enterprise.defaultSettings,
-    );
-
-    _enterprises[newId] = enterprise;
-    _credentials[cleanEmail] = {
-      "password": password,
-      "id": newId,
-      "role": "enterprise",
-    };
-
-    _currentUserRole = 'enterprise';
-    _currentEnterprise = enterprise;
-    _currentAgent = null;
-
-    await saveToDisk();
-    notifyListeners();
-    return true;
   }
 
-  void signOut() {
+  void signOut() async {
+    _cancelAllSubscriptions();
+    await FirebaseAuth.instance.signOut();
     _currentEnterprise = null;
     _currentAgent = null;
     _currentUserRole = null;
+    _notifiedIds.clear();
     notifyListeners();
   }
 
   // ================= ENTERPRISE ACTIONS =================
 
-  // Add agent
+  // Add agent (using secondary FirebaseApp config to avoid administrative session hijacking)
   Future<bool> createAgent(String name, String email, String password) async {
     if (_currentEnterprise == null) return false;
     final cleanEmail = email.trim().toLowerCase();
-    if (_credentials.containsKey(cleanEmail)) return false;
 
-    final agentId = "agent_${DateTime.now().millisecondsSinceEpoch}";
-    final agent = Agent(
-      id: agentId,
-      enterpriseId: _currentEnterprise!.id,
-      name: name.trim(),
-      email: cleanEmail,
-      createdAt: DateTime.now(),
-    );
+    try {
+      final appName = "agent_creation_${DateTime.now().millisecondsSinceEpoch}";
+      final tempApp = await Firebase.initializeApp(
+        name: appName,
+        options: Firebase.app().options,
+      );
 
-    _agents[agentId] = agent;
-    _credentials[cleanEmail] = {
-      "password": password,
-      "id": agentId,
-      "role": "agent",
-    };
+      final tempAuth = FirebaseAuth.instanceFor(app: tempApp);
+      final UserCredential tempCred = await tempAuth.createUserWithEmailAndPassword(
+        email: cleanEmail,
+        password: password,
+      );
+      final agentId = tempCred.user!.uid;
+      
+      await tempApp.delete();
 
-    await saveToDisk();
-    notifyListeners();
-    return true;
+      final agent = Agent(
+        id: agentId,
+        enterpriseId: _currentEnterprise!.id,
+        name: name.trim(),
+        email: cleanEmail,
+        createdAt: DateTime.now(),
+      );
+
+      await FirebaseFirestore.instance.collection('agents').doc(agentId).set(agent.toMap());
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint("Create agent error: $e");
+      return false;
+    }
   }
 
   // Get agents for current enterprise
@@ -377,11 +452,9 @@ class DatabaseService extends ChangeNotifier {
   // Update dynamic form configuration
   Future<void> updateFormSettings(List<ProspectFieldSetting> settings) async {
     if (_currentEnterprise == null) return;
-    final updated = _currentEnterprise!.copyWith(formSettings: settings);
-    _enterprises[updated.id] = updated;
-    _currentEnterprise = updated;
-    await saveToDisk();
-    notifyListeners();
+    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+      'formSettings': settings.map((s) => s.toMap()).toList(),
+    });
   }
 
   // Manage Message Templates
@@ -393,95 +466,75 @@ class DatabaseService extends ChangeNotifier {
       content: content.trim(),
     );
     final updatedTemplates = List<MessageTemplate>.from(_currentEnterprise!.messageTemplates)..add(newTemplate);
-    final updated = _currentEnterprise!.copyWith(messageTemplates: updatedTemplates);
-    _enterprises[updated.id] = updated;
-    _currentEnterprise = updated;
-    await saveToDisk();
-    notifyListeners();
+    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+      'messageTemplates': updatedTemplates.map((t) => t.toMap()).toList(),
+    });
   }
 
   Future<void> deleteMessageTemplate(String templateId) async {
     if (_currentEnterprise == null) return;
     final updatedTemplates = _currentEnterprise!.messageTemplates.where((t) => t.id != templateId).toList();
-    final updated = _currentEnterprise!.copyWith(messageTemplates: updatedTemplates);
-    _enterprises[updated.id] = updated;
-    _currentEnterprise = updated;
-    await saveToDisk();
-    notifyListeners();
+    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+      'messageTemplates': updatedTemplates.map((t) => t.toMap()).toList(),
+    });
   }
 
   // Update Brevo SMTP / API settings
   Future<void> updateEnterpriseBrevoSettings(String apiKey, String senderEmail) async {
     if (_currentEnterprise == null) return;
-    final updated = _currentEnterprise!.copyWith(
-      brevoApiKey: apiKey.trim(),
-      brevoSenderEmail: senderEmail.trim(),
-    );
-    _enterprises[updated.id] = updated;
-    _currentEnterprise = updated;
-    await saveToDisk();
-    notifyListeners();
+    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+      'brevoApiKey': apiKey.trim(),
+      'brevoSenderEmail': senderEmail.trim(),
+    });
   }
 
   // Update Country Code
   Future<void> updateDefaultCountryCode(String code) async {
     if (_currentEnterprise == null) return;
-    // Remove '+' if present
     final cleanCode = code.replaceAll('+', '').trim();
-    final updated = _currentEnterprise!.copyWith(defaultCountryCode: cleanCode);
-    _enterprises[updated.id] = updated;
-    _currentEnterprise = updated;
-    await saveToDisk();
-    notifyListeners();
+    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+      'defaultCountryCode': cleanCode,
+    });
   }
 
   // Format phone number for WhatsApp/SMS
   String formatPhoneNumber(String phone) {
-    // Remove all non-numeric characters
     String cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
-    
-    // If it starts with 00, replace with nothing (standardizing)
     if (cleanPhone.startsWith('00')) {
       cleanPhone = cleanPhone.substring(2);
     }
     
-    // Get default country code from enterprise
     final String countryCode = _currentEnterprise?.defaultCountryCode ?? 
                               (_currentAgent?.enterpriseId != null ? 
                               _enterprises[_currentAgent!.enterpriseId]?.defaultCountryCode ?? '229' : '229');
 
-    // If phone doesn't start with country code and is a local number (e.g., 10 digits for Benin)
-    // We assume it needs the country code
     if (!cleanPhone.startsWith(countryCode)) {
-      // Special case for Benin (229): The leading '0' MUST be kept in international format
       if (countryCode == '229') {
-        // If it's a 10-digit number starting with 0, just prepend 229 without stripping 0
         return countryCode + cleanPhone;
       }
-
-      // General case for other countries: strip local zero prefix
       if (cleanPhone.startsWith('0')) {
         cleanPhone = cleanPhone.substring(1);
       }
       return countryCode + cleanPhone;
     }
-    
     return cleanPhone;
   }
 
   // ================= PROSPECT ACTIONS =================
 
-
   // Assign a list of prospects to an agent
   Future<void> assignProspectsToAgent(String agentId, List<String> prospectIds) async {
     if (_currentEnterprise == null) return;
     
+    final batch = FirebaseFirestore.instance.batch();
+    
     // 1. Update each prospect to link it to the new agent and reset status to pending
     for (var pid in prospectIds) {
-      final p = _prospects[pid];
-      if (p != null) {
-        _prospects[pid] = p.copyWith(agentId: agentId, status: 'pending');
-      }
+      final docRef = FirebaseFirestore.instance.collection('prospects').doc(pid);
+      batch.update(docRef, {
+        'agentId': agentId,
+        'status': 'pending',
+      });
     }
 
     // 2. Create the task
@@ -493,14 +546,13 @@ class DatabaseService extends ChangeNotifier {
       prospectIds: prospectIds,
       assignedAt: DateTime.now(),
     );
-    _tasks[taskId] = newTask;
+    final taskDocRef = FirebaseFirestore.instance.collection('tasks').doc(taskId);
+    batch.set(taskDocRef, newTask.toMap());
     
-    await saveToDisk();
-    notifyListeners();
-
     // 3. Create notification for agent
+    final notifId = "notif_task_${DateTime.now().millisecondsSinceEpoch}";
     final notif = AppNotification(
-      id: "notif_task_${DateTime.now().millisecondsSinceEpoch}",
+      id: notifId,
       title: "Nouvelle tâche assignée",
       body: "Vous avez reçu ${prospectIds.length} nouveaux prospects à traiter.",
       timestamp: DateTime.now(),
@@ -508,17 +560,43 @@ class DatabaseService extends ChangeNotifier {
       relatedId: taskId,
       targetUserId: agentId,
     );
-    _notifications.add(notif);
-    _notifyNewAppNotification(notif);
+    final notifDocRef = FirebaseFirestore.instance.collection('notifications').doc(notifId);
+    batch.set(notifDocRef, notif.toMap());
+
+    await batch.commit();
   }
 
   // Reset all assignments/tasks for the current enterprise
   Future<void> resetAllAssignments() async {
     if (_currentEnterprise == null) return;
     final entId = _currentEnterprise!.id;
-    _tasks.removeWhere((key, task) => task.enterpriseId == entId);
-    await saveToDisk();
-    notifyListeners();
+
+    final batch = FirebaseFirestore.instance.batch();
+
+    // 1. Delete all tasks for this enterprise
+    final tasksQuery = await FirebaseFirestore.instance
+        .collection('tasks')
+        .where('enterpriseId', isEqualTo: entId)
+        .get();
+
+    for (var doc in tasksQuery.docs) {
+      batch.delete(doc.reference);
+    }
+
+    // 2. Clear agentId and reset status for all prospects
+    final prospectsQuery = await FirebaseFirestore.instance
+        .collection('prospects')
+        .where('enterpriseId', isEqualTo: entId)
+        .get();
+
+    for (var doc in prospectsQuery.docs) {
+      batch.update(doc.reference, {
+        'agentId': '',
+        'status': 'pending',
+      });
+    }
+
+    await batch.commit();
   }
 
   // Get prospects for the current enterprise
@@ -543,7 +621,6 @@ class DatabaseService extends ChangeNotifier {
         .where((x) => x.enterpriseId == _currentEnterprise!.id)
         .toList();
 
-    // Search filter
     if (searchQuery != null && searchQuery.isNotEmpty) {
       final query = searchQuery.toLowerCase();
       list = list.where((p) {
@@ -553,7 +630,6 @@ class DatabaseService extends ChangeNotifier {
       }).toList();
     }
 
-    // Date filters
     if (startDate != null) {
       list = list.where((p) => p.createdAt.isAfter(startDate)).toList();
     }
@@ -561,10 +637,8 @@ class DatabaseService extends ChangeNotifier {
       list = list.where((p) => p.createdAt.isBefore(endDate.add(const Duration(days: 1)))).toList();
     }
 
-    // Sort by date descending
     list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    // Pagination
     final startIndex = page * pageSize;
     if (startIndex >= list.length) return [];
     
@@ -641,61 +715,66 @@ class DatabaseService extends ChangeNotifier {
 
   // Unassign a prospect from an agent
   Future<void> unassignProspect(String prospectId) async {
-    // 1. Find all pending tasks containing this prospect
+    final tasksQuery = await FirebaseFirestore.instance
+        .collection('tasks')
+        .where('enterpriseId', isEqualTo: _currentEnterprise?.id)
+        .where('status', isEqualTo: 'pending')
+        .get();
+
+    final batch = FirebaseFirestore.instance.batch();
     bool changed = false;
-    _tasks.forEach((taskId, task) {
-      if (task.status == 'pending' && task.prospectIds.contains(prospectId)) {
+
+    for (var doc in tasksQuery.docs) {
+      final task = Task.fromMap(doc.data());
+      if (task.prospectIds.contains(prospectId)) {
         final newList = List<String>.from(task.prospectIds)..remove(prospectId);
-        if (newList.isEmpty) {
-          // If task becomes empty, we could remove it or just keep it
-          _tasks[taskId] = task.copyWith(prospectIds: []);
-        } else {
-          _tasks[taskId] = task.copyWith(prospectIds: newList);
-        }
+        batch.update(doc.reference, {
+          'prospectIds': newList,
+        });
         changed = true;
       }
-    });
+    }
 
     if (changed) {
-      await saveToDisk();
-      notifyListeners();
+      final prospectDocRef = FirebaseFirestore.instance.collection('prospects').doc(prospectId);
+      batch.update(prospectDocRef, {
+        'agentId': '',
+        'status': 'pending',
+      });
+      await batch.commit();
     }
   }
 
-  // Delete an agent and their credentials
+  // Delete an agent
   Future<void> deleteAgent(String agentId) async {
-    final agent = _agents[agentId];
-    if (agent == null) return;
+    try {
+      await FirebaseFirestore.instance.collection('agents').doc(agentId).delete();
+      
+      final tasksQuery = await FirebaseFirestore.instance
+          .collection('tasks')
+          .where('agentId', isEqualTo: agentId)
+          .get();
 
-    _credentials.remove(agent.email.toLowerCase());
-    _agents.remove(agentId);
-    
-    // Also remove their tasks? Usually safer to keep history but for now let's clean up
-    _tasks.removeWhere((k, v) => v.agentId == agentId);
-
-    await saveToDisk();
-    notifyListeners();
+      final batch = FirebaseFirestore.instance.batch();
+      for (var doc in tasksQuery.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    } catch (e) {
+      debugPrint("Delete agent error: $e");
+    }
   }
 
   // Update agent details
   Future<void> updateAgent(String agentId, String name, String email) async {
-    final agent = _agents[agentId];
-    if (agent == null) return;
-
-    final oldEmail = agent.email.toLowerCase();
-    final newEmail = email.trim().toLowerCase();
-
-    if (oldEmail != newEmail) {
-      final creds = _credentials.remove(oldEmail);
-      if (creds != null) {
-        _credentials[newEmail] = creds;
-      }
+    try {
+      await FirebaseFirestore.instance.collection('agents').doc(agentId).update({
+        'name': name.trim(),
+        'email': email.trim().toLowerCase(),
+      });
+    } catch (e) {
+      debugPrint("Update agent error: $e");
     }
-
-    _agents[agentId] = agent.copyWith(name: name.trim(), email: newEmail);
-    
-    await saveToDisk();
-    notifyListeners();
   }
 
   // ================= AGENT ACTIONS =================
@@ -711,11 +790,9 @@ class DatabaseService extends ChangeNotifier {
       data: data,
       status: 'pending',
       createdAt: DateTime.now(),
-      isSynced: true, // Mark synced immediately since this is offline-first unified DB
+      isSynced: true,
     );
-    _prospects[prospectId] = newProspect;
-    await saveToDisk();
-    notifyListeners();
+    await FirebaseFirestore.instance.collection('prospects').doc(prospectId).set(newProspect.toMap());
   }
 
   // Get tasks assigned to the current agent
@@ -748,18 +825,13 @@ class DatabaseService extends ChangeNotifier {
     );
 
     final updatedAttempts = List<CallAttempt>.from(prospect.callAttempts)..add(attempt);
-    final updatedProspect = prospect.copyWith(
-      status: status,
-      callAttempts: updatedAttempts,
-    );
 
-    _prospects[prospectId] = updatedProspect;
+    await FirebaseFirestore.instance.collection('prospects').doc(prospectId).update({
+      'status': status,
+      'callAttempts': updatedAttempts.map((x) => x.toMap()).toList(),
+    });
 
-    // Check if task is completed
     _checkTaskCompletionForAgent();
-
-    await saveToDisk();
-    notifyListeners();
   }
 
   // Check and mark tasks as completed if all prospects in it have been called
@@ -776,7 +848,9 @@ class DatabaseService extends ChangeNotifier {
         }
       }
       if (allCalled) {
-        _tasks[task.id] = task.copyWith(status: 'completed');
+        FirebaseFirestore.instance.collection('tasks').doc(task.id).update({
+          'status': 'completed',
+        });
       }
     }
   }
@@ -795,7 +869,6 @@ class DatabaseService extends ChangeNotifier {
   String generateProspectsCSV(List<Prospect> prospects) {
     if (prospects.isEmpty) return '';
 
-    // Headers
     List<String> headers = ['ID', 'Date de création', 'Statut'];
     final fields = _currentEnterprise?.formSettings.where((x) => x.enabled).toList() ?? Enterprise.defaultSettings;
     for (var field in fields) {
@@ -872,23 +945,18 @@ class DatabaseService extends ChangeNotifier {
     final currentCount = _currentEnterprise!.dailyEmailCounters[todayStr] ?? 0;
 
     if (currentCount >= 50) {
-      // Limit reached! Add notification to admin logs
       final agentName = _currentAgent?.name ?? 'Un agent';
       final notificationMsg = 
           "Tentative bloquée : L'agent $agentName a tenté d'envoyer un email à ${prospect.name} (${prospect.email}) mais la limite collective de 50 emails/jour a été atteinte.";
       
       final updatedNotifications = List<String>.from(_currentEnterprise!.adminNotifications)..add(notificationMsg);
-      final updatedEnterprise = _currentEnterprise!.copyWith(adminNotifications: updatedNotifications);
       
-      _enterprises[updatedEnterprise.id] = updatedEnterprise;
-      _currentEnterprise = updatedEnterprise;
-      
-      await saveToDisk();
-      notifyListeners();
-      return false; // Email sending blocked
+      await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+        'adminNotifications': updatedNotifications,
+      });
+      return false;
     }
 
-    // Call Brevo API or simulated free SMTP integration
     final bool emailSentSuccessfully;
     if (_currentEnterprise!.brevoApiKey.isNotEmpty && _currentEnterprise!.brevoSenderEmail.isNotEmpty) {
       emailSentSuccessfully = await _sendEmailViaBrevo(prospect.email, subject, content);
@@ -897,16 +965,12 @@ class DatabaseService extends ChangeNotifier {
     }
 
     if (emailSentSuccessfully) {
-      // Increment daily email counter for the enterprise
       final updatedCounters = Map<String, int>.from(_currentEnterprise!.dailyEmailCounters);
       updatedCounters[todayStr] = currentCount + 1;
 
-      final updatedEnterprise = _currentEnterprise!.copyWith(dailyEmailCounters: updatedCounters);
-      _enterprises[updatedEnterprise.id] = updatedEnterprise;
-      _currentEnterprise = updatedEnterprise;
-
-      await saveToDisk();
-      notifyListeners();
+      await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+        'dailyEmailCounters': updatedCounters,
+      });
       return true;
     }
 
@@ -926,8 +990,9 @@ class DatabaseService extends ChangeNotifier {
     final String senderId = _currentUserRole == 'enterprise' ? enterpriseId : _currentAgent!.id;
     final String senderName = _currentUserRole == 'enterprise' ? _currentEnterprise!.name : _currentAgent!.name;
 
+    final messageId = "chat_${DateTime.now().millisecondsSinceEpoch}";
     final message = ChatMessage(
-      id: "chat_${DateTime.now().millisecondsSinceEpoch}",
+      id: messageId,
       enterpriseId: enterpriseId,
       agentId: agentId,
       senderId: senderId,
@@ -936,22 +1001,22 @@ class DatabaseService extends ChangeNotifier {
       timestamp: DateTime.now(),
     );
 
-    _chatMessages.add(message);
-    await saveToDisk();
-    notifyListeners();
+    // Save chat message
+    await FirebaseFirestore.instance.collection('chatMessages').doc(messageId).set(message.toMap());
 
     // Create notification
+    final targetUserId = _currentUserRole == 'enterprise' ? agentId : enterpriseId;
+    final notifId = "notif_msg_${DateTime.now().millisecondsSinceEpoch}";
     final notif = AppNotification(
-      id: "notif_msg_${DateTime.now().millisecondsSinceEpoch}",
-      title: "Nouveau message",
-      body: "${senderName}: ${content}",
+      id: notifId,
+      title: _currentUserRole == 'enterprise' ? "Message de l'entreprise" : "Message de ${senderName}",
+      body: content.trim(),
       timestamp: DateTime.now(),
       type: 'message',
       relatedId: agentId,
-      targetUserId: _currentUserRole == 'enterprise' ? agentId : enterpriseId,
+      targetUserId: targetUserId,
     );
-    _notifications.add(notif);
-    _notifyNewAppNotification(notif);
+    await FirebaseFirestore.instance.collection('notifications').doc(notifId).set(notif.toMap());
   }
 
   // Notification stream for in-app alerts
@@ -964,6 +1029,7 @@ class DatabaseService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _cancelAllSubscriptions();
     _notifController.close();
     super.dispose();
   }
@@ -984,21 +1050,25 @@ class DatabaseService extends ChangeNotifier {
     final String enterpriseId = _currentEnterprise?.id ?? _currentAgent?.enterpriseId ?? '';
     final String currentUserId = _currentUserRole == 'enterprise' ? enterpriseId : (_currentAgent?.id ?? '');
     
+    final messagesQuery = await FirebaseFirestore.instance
+        .collection('chatMessages')
+        .where('enterpriseId', isEqualTo: enterpriseId)
+        .where('agentId', isEqualTo: agentId)
+        .get();
+
+    final batch = FirebaseFirestore.instance.batch();
     bool changed = false;
-    for (int i = 0; i < _chatMessages.length; i++) {
-      final m = _chatMessages[i];
-      if (m.enterpriseId == enterpriseId && 
-          m.agentId == agentId && 
-          m.senderId != currentUserId && 
-          !m.isRead) {
-        _chatMessages[i] = m.copyWith(isRead: true);
+
+    for (var doc in messagesQuery.docs) {
+      final m = ChatMessage.fromMap(doc.data());
+      if (m.senderId != currentUserId && !m.isRead) {
+        batch.update(doc.reference, {'isRead': true});
         changed = true;
       }
     }
 
     if (changed) {
-      await saveToDisk();
-      notifyListeners();
+      await batch.commit();
     }
   }
 
@@ -1044,17 +1114,22 @@ class DatabaseService extends ChangeNotifier {
         ? (_currentEnterprise?.id ?? '') 
         : (_currentAgent?.id ?? '');
     
+    final notifsQuery = await FirebaseFirestore.instance
+        .collection('notifications')
+        .where('targetUserId', isEqualTo: currentUserId)
+        .where('isRead', isEqualTo: false)
+        .get();
+
+    final batch = FirebaseFirestore.instance.batch();
     bool changed = false;
-    for (int i = 0; i < _notifications.length; i++) {
-      if (_notifications[i].targetUserId == currentUserId && !_notifications[i].isRead) {
-        _notifications[i] = _notifications[i].copyWith(isRead: true);
-        changed = true;
-      }
+
+    for (var doc in notifsQuery.docs) {
+      batch.update(doc.reference, {'isRead': true});
+      changed = true;
     }
 
     if (changed) {
-      await saveToDisk();
-      notifyListeners();
+      await batch.commit();
     }
   }
 
@@ -1101,20 +1176,16 @@ class DatabaseService extends ChangeNotifier {
   }
 
   Future<bool> _simulateEmailSending(String to, String subject, String body) async {
-    // Simulate API delay
     await Future.delayed(const Duration(milliseconds: 600));
     return true;
   }
 
-
   // Clear notifications for enterprise admin
   Future<void> clearAdminNotifications() async {
     if (_currentEnterprise == null) return;
-    final updated = _currentEnterprise!.copyWith(adminNotifications: []);
-    _enterprises[updated.id] = updated;
-    _currentEnterprise = updated;
-    await saveToDisk();
-    notifyListeners();
+    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+      'adminNotifications': [],
+    });
   }
 
   // Send a test email to verify credentials
@@ -1139,7 +1210,6 @@ class DatabaseService extends ChangeNotifier {
     final subject = "Rapport de prospection - $agentName";
     final body = "Bonjour,\n\nVous trouverez ci-joint le rapport de prospection de l'agent $agentName clôturé le ${DateTime.now().toLocal().toString().substring(0, 19)}.\n\nCordialement,\nL'équipe G-CRM.";
 
-    // Convert CSV to Base64
     final bytes = utf8.encode(csvString);
     final base64Csv = base64.encode(bytes);
 
@@ -1185,10 +1255,8 @@ class DatabaseService extends ChangeNotifier {
         return false;
       }
     } else {
-      // Simulation if Brevo is not configured
       await Future.delayed(const Duration(seconds: 1));
       return true;
     }
   }
 }
-
