@@ -9,6 +9,8 @@ import '../auth/role_selection_screen.dart';
 import '../chat/chat_screen.dart';
 import '../chat/enterprise_chat_list_screen.dart';
 import '../notifications/notification_screen.dart';
+import '../../services/pdf_service.dart';
+import '../agent/prospect_detail_screen.dart';
 
 import 'package:intl/intl.dart';
 
@@ -280,6 +282,19 @@ class _AnalyticsTab extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           
+          // PDF Export Button
+          ElevatedButton.icon(
+            onPressed: prospects.isEmpty ? null : () => PdfService.exportFicheCRM(prospects),
+            icon: const Icon(Icons.picture_as_pdf),
+            label: const Text("Exporter la Fiche CRM Globale (PDF)"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // Metrics Row
           Row(
             children: [
@@ -535,6 +550,14 @@ class _AnalyticsTab extends StatelessWidget {
                     itemBuilder: (context, index) {
                       final p = agentProspects[index];
                       return ListTile(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ProspectDetailScreen(prospectId: p.id),
+                            ),
+                          );
+                        },
                         title: Text(p.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                         subtitle: Text("Statut: ${p.status}", style: const TextStyle(fontSize: 12)),
                         trailing: IconButton(
@@ -928,6 +951,7 @@ class _HistoryTabState extends State<_HistoryTab> {
   }
 
   Widget _buildHistoryTile(Prospect p) {
+    final db = Provider.of<DatabaseService>(context, listen: false);
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ExpansionTile(
@@ -949,6 +973,7 @@ class _HistoryTabState extends State<_HistoryTab> {
                 _infoRow("Email", p.data['email'] ?? 'N/A'),
                 _infoRow("Entreprise", p.data['entreprise'] ?? 'N/A'),
                 _infoRow("Note", p.data['note'] ?? 'N/A'),
+                _infoRow("Agent responsable", db.allAgents.firstWhere((a) => a.id == p.agentId, orElse: () => Agent(id: '', enterpriseId: '', name: 'Non assigné', email: '', createdAt: DateTime.now())).name),
                 const Divider(),
                 const SizedBox(height: 8),
                 const Text("Actions rapides:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
@@ -957,9 +982,24 @@ class _HistoryTabState extends State<_HistoryTab> {
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ProspectDetailScreen(prospectId: p.id),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.visibility, size: 16),
+                        label: const Text("Voir le suivi détaillé", style: TextStyle(fontSize: 11)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
                         onPressed: () => _showAssignDialog(context, p),
                         icon: const Icon(Icons.person_add, size: 16),
-                        label: const Text("Attribuer à un agent", style: TextStyle(fontSize: 11)),
+                        label: const Text("Réattribuer l'agent", style: TextStyle(fontSize: 11)),
                       ),
                     ),
                   ],
@@ -1344,7 +1384,24 @@ class _SettingsTabState extends State<_SettingsTab> {
                 await db.updateDefaultCountryCode(_countryCodeController.text);
                 if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Indicatif pays mis à jour !"), backgroundColor: AppTheme.successColor));
               },
-              child: const Text("Sauvegarder"),
+              child: const Text("Sauvegarder l'indicatif"),
+            ),
+            const SizedBox(height: 24),
+            const Text("Suivi Automatique", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.secondaryColor)),
+            const SizedBox(height: 8),
+            Card(
+              child: SwitchListTile(
+                title: const Text("Auto-assignation des prospects", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: const Text(
+                  "Si activé, les prospects ajoutés par un agent lui seront automatiquement assignés pour le suivi.",
+                  style: TextStyle(fontSize: 11),
+                ),
+                activeColor: AppTheme.primaryColor,
+                value: ent.autoAssignToAgent,
+                onChanged: (val) async {
+                  await db.updateAutoAssignToAgent(val);
+                },
+              ),
             ),
           ],
         ],

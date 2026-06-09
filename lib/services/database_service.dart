@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:csv/csv.dart';
 import 'package:http/http.dart' as http;
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import '../models/enterprise.dart';
 import '../models/agent.dart';
 import '../models/prospect.dart';
@@ -375,7 +375,11 @@ class DatabaseService extends ChangeNotifier {
         formSettings: Enterprise.defaultSettings,
       );
 
-      await FirebaseFirestore.instance.collection('enterprises').doc(userId).set(enterprise.toMap());
+      await FirebaseFirestore.instance
+          .collection('enterprises')
+          .doc(userId)
+          .set(enterprise.toMap())
+          .timeout(const Duration(seconds: 10));
 
       _currentUserRole = 'enterprise';
       _currentEnterprise = enterprise;
@@ -494,6 +498,14 @@ class DatabaseService extends ChangeNotifier {
     final cleanCode = code.replaceAll('+', '').trim();
     await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
       'defaultCountryCode': cleanCode,
+    });
+  }
+
+  // Update Auto Assign Setting
+  Future<void> updateAutoAssignToAgent(bool value) async {
+    if (_currentEnterprise == null) return;
+    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+      'autoAssignToAgent': value,
     });
   }
 
@@ -783,16 +795,39 @@ class DatabaseService extends ChangeNotifier {
   Future<void> addProspect(Map<String, String> data) async {
     if (_currentAgent == null) return;
     final prospectId = "prospect_${DateTime.now().millisecondsSinceEpoch}";
+    final enterpriseId = _currentAgent!.enterpriseId;
+    
+    // Check if auto-assignment is enabled for this enterprise
+    final bool autoAssign = _currentEnterprise?.autoAssignToAgent ?? 
+                           _enterprises[enterpriseId]?.autoAssignToAgent ?? false;
+
     final newProspect = Prospect(
       id: prospectId,
-      enterpriseId: _currentAgent!.enterpriseId,
+      enterpriseId: enterpriseId,
       agentId: _currentAgent!.id,
       data: data,
       status: 'pending',
       createdAt: DateTime.now(),
       isSynced: true,
     );
-    await FirebaseFirestore.instance.collection('prospects').doc(prospectId).set(newProspect.toMap());
+
+    final batch = FirebaseFirestore.instance.batch();
+    batch.set(FirebaseFirestore.instance.collection('prospects').doc(prospectId), newProspect.toMap());
+
+    // If auto-assign is on, create a task immediately
+    if (autoAssign) {
+      final taskId = "task_auto_${DateTime.now().millisecondsSinceEpoch}";
+      final newTask = Task(
+        id: taskId,
+        enterpriseId: enterpriseId,
+        agentId: _currentAgent!.id,
+        prospectIds: [prospectId],
+        assignedAt: DateTime.now(),
+      );
+      batch.set(FirebaseFirestore.instance.collection('tasks').doc(taskId), newTask.toMap());
+    }
+
+    await batch.commit();
   }
 
   // Get tasks assigned to the current agent
@@ -832,6 +867,32 @@ class DatabaseService extends ChangeNotifier {
     });
 
     _checkTaskCompletionForAgent();
+  }
+
+  // Update prospect tracking (Suivis 1-8)
+  Future<void> updateProspectSuivi({
+    required String prospectId,
+    required int index,
+    required String resume,
+    String? observation,
+    String? decision,
+  }) async {
+    final prospect = _prospects[prospectId];
+    if (prospect == null) return;
+
+    final List<Suivi> updatedSuivis = List<Suivi>.from(prospect.suivis);
+    if (index >= 0 && index < 8) {
+      updatedSuivis[index] = Suivi(date: DateTime.now(), resume: resume);
+    }
+
+    final Map<String, dynamic> updates = {
+      'suivis': updatedSuivis.map((x) => x.toMap()).toList(),
+    };
+
+    if (observation != null) updates['observation'] = observation;
+    if (decision != null) updates['decision'] = decision;
+
+    await FirebaseFirestore.instance.collection('prospects').doc(prospectId).update(updates);
   }
 
   // Check and mark tasks as completed if all prospects in it have been called

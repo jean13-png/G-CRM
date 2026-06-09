@@ -90,6 +90,7 @@ class Enterprise {
   final String brevoSenderEmail;
   final List<MessageTemplate> messageTemplates;
   final String defaultCountryCode; // e.g., "229" for Benin
+  final bool autoAssignToAgent; // If true, prospects added by agents are auto-assigned for follow-up
 
   Enterprise({
     required this.id,
@@ -103,6 +104,7 @@ class Enterprise {
     this.brevoSenderEmail = '',
     this.messageTemplates = const [],
     this.defaultCountryCode = '229',
+    this.autoAssignToAgent = false,
   });
 
   static List<ProspectFieldSetting> get defaultSettings => [
@@ -126,6 +128,7 @@ class Enterprise {
     String? brevoSenderEmail,
     List<MessageTemplate>? messageTemplates,
     String? defaultCountryCode,
+    bool? autoAssignToAgent,
   }) {
     return Enterprise(
       id: id ?? this.id,
@@ -139,6 +142,7 @@ class Enterprise {
       brevoSenderEmail: brevoSenderEmail ?? this.brevoSenderEmail,
       messageTemplates: messageTemplates ?? this.messageTemplates,
       defaultCountryCode: defaultCountryCode ?? this.defaultCountryCode,
+      autoAssignToAgent: autoAssignToAgent ?? this.autoAssignToAgent,
     );
   }
 
@@ -155,6 +159,7 @@ class Enterprise {
       'brevoSenderEmail': brevoSenderEmail,
       'messageTemplates': messageTemplates.map((x) => x.toMap()).toList(),
       'defaultCountryCode': defaultCountryCode,
+      'autoAssignToAgent': autoAssignToAgent,
     };
   }
 
@@ -177,6 +182,7 @@ class Enterprise {
               map['messageTemplates'].map((x) => MessageTemplate.fromMap(x)))
           : const [],
       defaultCountryCode: map['defaultCountryCode'] ?? '229',
+      autoAssignToAgent: map['autoAssignToAgent'] ?? false,
     );
   }
 

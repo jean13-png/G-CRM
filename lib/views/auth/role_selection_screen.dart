@@ -93,7 +93,7 @@ class RoleSelectionScreen extends StatelessWidget {
                           ],
                         ),
                         child: Image.asset(
-                          'assets/images/logo.png',
+                          'assets/images/logo_new.png',
                           height: 90,
                           fit: BoxFit.contain,
                           errorBuilder: (context, error, stackTrace) {

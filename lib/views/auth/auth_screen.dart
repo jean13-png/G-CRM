@@ -255,31 +255,6 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
               ),
             ),
             const SizedBox(height: 24),
-            
-            // Offline demo tip
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.info_outline, color: AppTheme.primaryColor, size: 20),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      "Mode local actif : utilisez 'direction@supelite.com' (Entreprise) ou 'koffi@supelite.com' (Agent) avec le mot de passe 'password' pour tester directement hors-ligne.",
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: AppTheme.primaryDark,
-                        height: 1.3,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),

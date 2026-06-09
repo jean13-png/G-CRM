@@ -161,25 +161,44 @@ class MainGate extends StatelessWidget {
 
     // If the database service is still initializing, show a simple splash loading screen
     if (!db.isInitialized) {
-      return const Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.insights, size: 64, color: AppTheme.primaryColor),
-              SizedBox(height: 24),
-              CircularProgressIndicator(color: AppTheme.primaryColor),
-              SizedBox(height: 16),
-              Text(
-                "Chargement de G-CRM...",
-                style: TextStyle(
-                  color: AppTheme.textLight,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
+      return Scaffold(
+        body: Stack(
+          children: [
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Image.asset(
+                    'assets/images/logo_new.png',
+                    width: 150,
+                    height: 150,
+                  ),
+                  const SizedBox(height: 40),
+                  const CircularProgressIndicator(color: AppTheme.primaryColor),
+                  const SizedBox(height: 16),
+                  const Text(
+                    "Chargement de G-CRM...",
+                    style: TextStyle(
+                      color: AppTheme.textLight,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              bottom: 40,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Image.asset(
+                  'assets/images/version_branding.png',
+                  height: 60,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }

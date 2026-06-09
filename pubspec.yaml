@@ -44,6 +44,8 @@ dependencies:
   share_plus: ^13.1.0
   intl: ^0.20.2
   http: ^1.6.0
+  pdf: ^3.11.1
+  printing: ^5.13.2
 
 dev_dependencies:
   flutter_test:
@@ -99,12 +101,16 @@ flutter:
   # see https://flutter.dev/to/font-from-package
 
 flutter_launcher_icons:
-  android: "launcher_icon"
-  ios: true
-  image_path: "assets/images/logo_square.png"
-
-flutter_native_splash:
-  color: "#ffffff"
-  image: "assets/images/logo_square.png"
   android: true
   ios: true
+  image_path: "assets/images/logo_new.png"
+  adaptive_icon_background: "#F57C00"
+  adaptive_icon_foreground: "assets/images/logo_new.png"
+
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: "assets/images/logo_new.png"
+  branding: "assets/images/version_branding.png"
+  android: true
+  ios: true
+  fullscreen: true

@@ -30,6 +30,30 @@ class CallAttempt {
   }
 }
 
+class Suivi {
+  final DateTime? date;
+  final String resume;
+
+  Suivi({
+    this.date,
+    this.resume = '',
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'date': date?.toIso8601String(),
+      'resume': resume,
+    };
+  }
+
+  factory Suivi.fromMap(Map<String, dynamic> map) {
+    return Suivi(
+      date: map['date'] != null ? DateTime.parse(map['date']) : null,
+      resume: map['resume'] ?? '',
+    );
+  }
+}
+
 class Prospect {
   final String id;
   final String enterpriseId;
@@ -37,6 +61,9 @@ class Prospect {
   final Map<String, String> data; // e.g. {'nom': 'Dupont', 'telephone': '098...'}
   final String status; // 'pending', 'ok', 'non', 'unreachable'
   final List<CallAttempt> callAttempts;
+  final List<Suivi> suivis; // Strictly 8 slots
+  final String observation;
+  final String decision;
   final DateTime createdAt;
   final bool isSynced; // Local vs Firebase synchronization state
 
@@ -47,9 +74,12 @@ class Prospect {
     required this.data,
     this.status = 'pending',
     this.callAttempts = const [],
+    List<Suivi>? suivis,
+    this.observation = '',
+    this.decision = '',
     required this.createdAt,
     this.isSynced = false,
-  });
+  }) : suivis = suivis ?? List.generate(8, (_) => Suivi());
 
   Prospect copyWith({
     String? id,
@@ -58,6 +88,9 @@ class Prospect {
     Map<String, String>? data,
     String? status,
     List<CallAttempt>? callAttempts,
+    List<Suivi>? suivis,
+    String? observation,
+    String? decision,
     DateTime? createdAt,
     bool? isSynced,
   }) {
@@ -68,6 +101,9 @@ class Prospect {
       data: data ?? this.data,
       status: status ?? this.status,
       callAttempts: callAttempts ?? this.callAttempts,
+      suivis: suivis ?? this.suivis,
+      observation: observation ?? this.observation,
+      decision: decision ?? this.decision,
       createdAt: createdAt ?? this.createdAt,
       isSynced: isSynced ?? this.isSynced,
     );
@@ -81,6 +117,9 @@ class Prospect {
       'data': data,
       'status': status,
       'callAttempts': callAttempts.map((x) => x.toMap()).toList(),
+      'suivis': suivis.map((x) => x.toMap()).toList(),
+      'observation': observation,
+      'decision': decision,
       'createdAt': createdAt.toIso8601String(),
       'isSynced': isSynced,
     };
@@ -97,6 +136,11 @@ class Prospect {
           ? List<CallAttempt>.from(
               map['callAttempts'].map((x) => CallAttempt.fromMap(x)))
           : const [],
+      suivis: map['suivis'] != null
+          ? List<Suivi>.from(map['suivis'].map((x) => Suivi.fromMap(x)))
+          : List.generate(8, (_) => Suivi()),
+      observation: map['observation'] ?? '',
+      decision: map['decision'] ?? '',
       createdAt: map['createdAt'] != null
           ? DateTime.parse(map['createdAt'])
           : DateTime.now(),

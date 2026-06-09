@@ -9,6 +9,7 @@ import 'prospect_form_screen.dart';
 import 'task_call_screen.dart';
 import '../chat/chat_screen.dart';
 import '../notifications/notification_screen.dart';
+import 'prospect_detail_screen.dart';
 
 class AgentDashboard extends StatefulWidget {
   const AgentDashboard({super.key});
@@ -533,6 +534,14 @@ class _AgentDashboardState extends State<AgentDashboard> {
         side: BorderSide(color: Colors.grey.shade200),
       ),
       child: ListTile(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ProspectDetailScreen(prospectId: p.id),
+            ),
+          );
+        },
         leading: CircleAvatar(
           backgroundColor: AppTheme.primaryColor.withOpacity(0.1),
           child: Text(
