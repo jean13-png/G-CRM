@@ -50,7 +50,7 @@ class _AgentDashboardState extends State<AgentDashboard> {
     final unreachableProspects = db.getUnreachableProspectsForCurrentAgent();
 
     final totalCollected = agentProspects.length;
-    final pendingCalls = assignedProspects.where((x) => x.status == 'En attente').length;
+    final pendingCalls = assignedProspects.where((x) => x.status == 'pending').length;
     final okCalls = assignedProspects.where((x) => x.status == 'Succès').length;
     final nonCalls = assignedProspects.where((x) => x.status == 'Refus').length;
 

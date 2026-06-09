@@ -7,6 +7,7 @@ import '../../models/prospect.dart';
 import '../../theme.dart';
 import '../auth/role_selection_screen.dart';
 import '../chat/chat_screen.dart';
+import '../chat/enterprise_chat_list_screen.dart';
 import '../notifications/notification_screen.dart';
 
 import 'package:intl/intl.dart';
@@ -67,6 +68,45 @@ class _EnterpriseDashboardState extends State<EnterpriseDashboard> {
                     ),
                     child: Text(
                       db.getUnreadNotificationsCount().toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          Stack(
+            children: [
+              IconButton(
+                tooltip: 'Messagerie',
+                icon: const Icon(Icons.chat_bubble_outline, color: AppTheme.secondaryColor),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const EnterpriseChatListScreen()),
+                  );
+                },
+              ),
+              if (db.getUnreadMessagesCount() > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: AppTheme.errorColor,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: Text(
+                      db.getUnreadMessagesCount().toString(),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 10,

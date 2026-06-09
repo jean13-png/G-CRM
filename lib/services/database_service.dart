@@ -476,11 +476,11 @@ class DatabaseService extends ChangeNotifier {
   Future<void> assignProspectsToAgent(String agentId, List<String> prospectIds) async {
     if (_currentEnterprise == null) return;
     
-    // 1. Update each prospect to link it to the new agent
+    // 1. Update each prospect to link it to the new agent and reset status to pending
     for (var pid in prospectIds) {
       final p = _prospects[pid];
       if (p != null) {
-        _prospects[pid] = p.copyWith(agentId: agentId);
+        _prospects[pid] = p.copyWith(agentId: agentId, status: 'pending');
       }
     }
 
@@ -619,7 +619,7 @@ class DatabaseService extends ChangeNotifier {
       int ok = agentProspects.where((x) => x.status == 'Succès').length;
       int non = agentProspects.where((x) => x.status == 'Refus').length;
       int unreachable = agentProspects.where((x) => x.status == 'unreachable').length;
-      int pending = agentProspects.where((x) => x.status == 'En attente').length;
+      int pending = agentProspects.where((x) => x.status == 'pending').length;
       map[agent.name] = {
         'ok': ok,
         'non': non,
