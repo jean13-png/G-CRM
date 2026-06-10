@@ -80,7 +80,7 @@ class PdfService {
                     children: [
                       _buildCell(index.toString()),
                       _buildContactCell(p, formatter),
-                      ...List.generate(8, (i) => _buildSuiviCell(p.suivis[i], formatter)),
+                      ...List.generate(8, (i) => _buildSuiviCell(p, i, formatter)),
                       _buildCell(p.observation),
                       _buildCell(p.decision),
                     ],
@@ -138,21 +138,44 @@ class PdfService {
     );
   }
 
-  static pw.Widget _buildSuiviCell(Suivi s, DateFormat formatter) {
-    final hasData = s.date != null;
+  static pw.Widget _buildSuiviCell(Prospect p, int index, DateFormat formatter) {
+    // Check if there is a manual tracking (Suivi 1-8)
+    final suivi = p.suivis[index];
+    final hasSuivi = suivi.date != null;
+
+    // Check if there is a call attempt for this index
+    // We map call attempts to the slots if manual suivi is empty
+    CallAttempt? attempt;
+    if (index < p.callAttempts.length) {
+      attempt = p.callAttempts[index];
+    }
+
+    final hasData = hasSuivi || attempt != null;
+
     return pw.Padding(
       padding: const pw.EdgeInsets.all(3),
       child: pw.Column(
         mainAxisAlignment: pw.MainAxisAlignment.center,
         children: [
           pw.Text(
-            hasData ? formatter.format(s.date!) : '.../.../...',
+            hasData 
+                ? formatter.format(hasSuivi ? suivi.date! : attempt!.timestamp) 
+                : '.../.../...',
             style: pw.TextStyle(fontSize: 6, color: hasData ? PdfColors.black : PdfColors.grey),
           ),
           pw.SizedBox(height: 2),
           pw.Text(
-            s.resume.isNotEmpty ? s.resume : '...',
-            style: pw.TextStyle(fontSize: 6, fontStyle: pw.FontStyle.italic),
+            hasSuivi 
+                ? suivi.resume 
+                : (attempt != null ? attempt.verdict.toUpperCase() : '...'),
+            style: pw.TextStyle(
+              fontSize: 6, 
+              fontStyle: pw.FontStyle.italic,
+              fontWeight: (attempt != null && !hasSuivi) ? pw.FontWeight.bold : pw.FontWeight.normal,
+              color: (attempt != null && !hasSuivi) 
+                  ? (attempt.verdict.toLowerCase().contains('succès') ? PdfColors.green : (attempt.verdict.toLowerCase().contains('refus') ? PdfColors.red : PdfColors.black))
+                  : PdfColors.black,
+            ),
             textAlign: pw.TextAlign.center,
             maxLines: 2,
           ),
