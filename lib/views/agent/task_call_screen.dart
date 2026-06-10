@@ -189,9 +189,20 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
     if (_currentIndex >= widget.prospectsToCall.length) return;
     
     final prospect = widget.prospectsToCall[_currentIndex];
+    final db = Provider.of<DatabaseService>(context, listen: false);
+    final enterprise = db.currentEnterprise;
+    
     setState(() {
       _dialogOpen = true;
     });
+
+    // Determine verdicts to show
+    final List<String> verdicts = [];
+    if (enterprise != null && enterprise.customVerdicts.isNotEmpty) {
+      verdicts.addAll(enterprise.customVerdicts);
+    } else {
+      verdicts.addAll(Enterprise.platformDefaultVerdicts);
+    }
 
     showModalBottomSheet(
       context: context,
@@ -234,44 +245,40 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
                   maxLines: 2,
                 ),
                 const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.successColor,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        onPressed: () => _submitVerdict('Succès'),
-                        icon: const Icon(Icons.check_circle, size: 18),
-                        label: const Text("SUCCÈS", style: TextStyle(fontSize: 12)),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.errorColor,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        onPressed: () => _submitVerdict('Refus'),
-                        icon: const Icon(Icons.cancel, size: 18),
-                        label: const Text("REFUS", style: TextStyle(fontSize: 12)),
-                      ),
-                    ),
-                  ],
+                
+                const Text(
+                  "Sélectionnez le résultat :",
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textLight),
                 ),
                 const SizedBox(height: 12),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.warningColor,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    iconColor: Colors.white,
-                    foregroundColor: Colors.white,
-                  ),
-                  onPressed: () => _submitVerdict('unreachable'),
-                  icon: const Icon(Icons.phone_missed, size: 18),
-                  label: const Text("INJOIGNABLE / À RELANCER", style: TextStyle(fontSize: 12)),
+
+                // Dynamic Verdict Buttons
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: verdicts.map((v) {
+                    final isPositive = v.toLowerCase().contains('succès') || v.toLowerCase().contains('ok') || v.toLowerCase().contains('rendez');
+                    final isNegative = v.toLowerCase().contains('refus') || v.toLowerCase().contains('non');
+                    
+                    return SizedBox(
+                      width: (MediaQuery.of(context).size.width - 50) / 2,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isPositive 
+                              ? AppTheme.successColor 
+                              : (isNegative ? AppTheme.errorColor : AppTheme.secondaryColor),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          elevation: 0,
+                        ),
+                        onPressed: () => _submitVerdict(v),
+                        child: Text(
+                          v.toUpperCase(),
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 ),
                 const SizedBox(height: 20),
               ],
@@ -401,7 +408,7 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
                     padding: const EdgeInsets.all(24.0),
                     child: Column(
                       children: [
-                        if (prospect.isWhatsApp)
+                        if (prospect.isWhatsApp && prospect.numeroWhatsApp.isEmpty)
                           Container(
                             margin: const EdgeInsets.only(bottom: 12),
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -450,6 +457,8 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
                         
                         // Contact info
                         _buildContactDetail(Icons.phone, prospect.phone),
+                        if (prospect.numeroWhatsApp.isNotEmpty)
+                          _buildContactDetail(Icons.chat_bubble_outline, prospect.numeroWhatsApp),
                         if (prospect.email.isNotEmpty) ...[
                           const SizedBox(height: 8),
                           _buildContactDetail(Icons.email, prospect.email),

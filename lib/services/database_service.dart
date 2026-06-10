@@ -509,6 +509,14 @@ class DatabaseService extends ChangeNotifier {
     });
   }
 
+  // Update Custom Verdicts
+  Future<void> updateCustomVerdicts(List<String> verdicts) async {
+    if (_currentEnterprise == null) return;
+    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+      'customVerdicts': verdicts,
+    });
+  }
+
   // Format phone number for WhatsApp/SMS
   String formatPhoneNumber(String phone) {
     String cleanPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
@@ -801,13 +809,19 @@ class DatabaseService extends ChangeNotifier {
     final bool autoAssign = _currentEnterprise?.autoAssignToAgent ?? 
                            _enterprises[enterpriseId]?.autoAssignToAgent ?? false;
 
+    // Determine if it's a WhatsApp number: check if numeroWhatsApp field is set or if the checkbox was ticked
+    bool finalIsWhatsApp = isWhatsApp;
+    if (data.containsKey('numeroWhatsApp') && data['numeroWhatsApp'] != null && data['numeroWhatsApp']!.isNotEmpty) {
+      finalIsWhatsApp = true;
+    }
+
     final newProspect = Prospect(
       id: prospectId,
       enterpriseId: enterpriseId,
       agentId: _currentAgent!.id,
       data: data,
       status: 'pending',
-      isWhatsApp: isWhatsApp,
+      isWhatsApp: finalIsWhatsApp,
       createdAt: DateTime.now(),
       isSynced: true,
     );

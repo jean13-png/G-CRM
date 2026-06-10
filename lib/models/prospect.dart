@@ -161,5 +161,6 @@ class Prospect {
   // Helper getters
   String get name => '${data['prenom'] ?? ''} ${data['nom'] ?? ''}'.trim();
   String get phone => data['telephone'] ?? '';
+  String get numeroWhatsApp => data['numeroWhatsApp'] ?? '';
   String get email => data['email'] ?? '';
 }

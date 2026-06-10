@@ -259,24 +259,25 @@ class _ProspectFormScreenState extends State<ProspectFormScreen> {
                         }).toList(),
                       ),
                     ),
-                    // WhatsApp Checkbox
-                    CheckboxListTile(
-                      title: const Text(
-                        "C'est un numéro WhatsApp",
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    // WhatsApp Checkbox: only show if the separate WhatsApp field is not enabled
+                    if (db.currentEnterprise?.formSettings.firstWhere((f) => f.id == 'numeroWhatsApp', orElse: () => ProspectFieldSetting(id: 'numeroWhatsApp', label: '', required: false, enabled: false)).enabled == false)
+                      CheckboxListTile(
+                        title: const Text(
+                          "C'est un numéro WhatsApp",
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: const Text(
+                          "Cochez si vous savez que ce prospect utilise WhatsApp",
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        value: _isWhatsApp,
+                        activeColor: Colors.green,
+                        secondary: const Icon(Icons.chat_bubble_outline, color: Colors.green),
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (val) {
+                          setState(() => _isWhatsApp = val ?? false);
+                        },
                       ),
-                      subtitle: const Text(
-                        "Cochez si vous savez que ce prospect utilise WhatsApp",
-                        style: TextStyle(fontSize: 11),
-                      ),
-                      value: _isWhatsApp,
-                      activeColor: Colors.green,
-                      secondary: const Icon(Icons.chat_bubble_outline, color: Colors.green),
-                      contentPadding: EdgeInsets.zero,
-                      onChanged: (val) {
-                        setState(() => _isWhatsApp = val ?? false);
-                      },
-                    ),
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       onPressed: _saveProspect,
@@ -311,6 +312,8 @@ class _ProspectFormScreenState extends State<ProspectFormScreen> {
         return Icons.person_outline;
       case 'telephone':
         return Icons.phone_outlined;
+      case 'numeroWhatsApp':
+        return Icons.chat_bubble_outline;
       case 'email':
         return Icons.mail_outline;
       case 'entreprise':

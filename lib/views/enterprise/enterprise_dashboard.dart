@@ -1194,13 +1194,14 @@ class _SettingsTab extends StatefulWidget {
 }
 
 class _SettingsTabState extends State<_SettingsTab> {
-  int _activeSettingIndex = 0; // 0: Form, 1: Email, 2: App Config
+  int _activeSettingIndex = 0; // 0: Form, 1: Email, 2: App Config, 3: Verdicts
   List<ProspectFieldSetting> _tempSettings = [];
   bool _isLoaded = false;
 
   final _apiKeyController = TextEditingController();
   final _senderEmailController = TextEditingController();
   final _countryCodeController = TextEditingController();
+  final _verdictController = TextEditingController();
   final _brevoFormKey = GlobalKey<FormState>();
   bool _testingEmail = false;
 
@@ -1209,6 +1210,7 @@ class _SettingsTabState extends State<_SettingsTab> {
     _apiKeyController.dispose();
     _senderEmailController.dispose();
     _countryCodeController.dispose();
+    _verdictController.dispose();
     super.dispose();
   }
 
@@ -1256,6 +1258,12 @@ class _SettingsTabState extends State<_SettingsTab> {
                   label: "Configuration App",
                   index: 2,
                   isSelected: _activeSettingIndex == 2,
+                ),
+                const SizedBox(width: 8),
+                _buildModernChip(
+                  label: "Verdicts Appels",
+                  index: 3,
+                  isSelected: _activeSettingIndex == 3,
                 ),
               ],
             ),
@@ -1403,6 +1411,88 @@ class _SettingsTabState extends State<_SettingsTab> {
                 },
               ),
             ),
+          ] else if (_activeSettingIndex == 3) ...[
+            const Text(
+              "Personnalisation des Verdicts d'Appels",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.secondaryColor),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "Définissez les résultats possibles qu'un agent peut choisir après avoir contacté un prospect.",
+              style: TextStyle(color: AppTheme.textLight, fontSize: 12, height: 1.3),
+            ),
+            const SizedBox(height: 16),
+            
+            // Default Verdicts (Read only or toggle?)
+            const Text("Verdicts par défaut de la plateforme", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: Enterprise.platformDefaultVerdicts.map((v) => Chip(
+                label: Text(v, style: const TextStyle(fontSize: 12)),
+                backgroundColor: Colors.grey.shade100,
+              )).toList(),
+            ),
+            const SizedBox(height: 24),
+
+            // Custom Verdicts
+            const Text("Vos Verdicts personnalisés", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 12),
+            
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _verdictController,
+                    decoration: const InputDecoration(
+                      hintText: "Ajouter un verdict (ex: Rappeler plus tard)",
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.add_circle, color: AppTheme.primaryColor, size: 32),
+                  onPressed: () async {
+                    if (_verdictController.text.trim().isNotEmpty) {
+                      final newList = List<String>.from(ent.customVerdicts)
+                        ..add(_verdictController.text.trim());
+                      await db.updateCustomVerdicts(newList);
+                      _verdictController.clear();
+                    }
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            if (ent.customVerdicts.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(child: Text("Aucun verdict personnalisé.", style: TextStyle(color: AppTheme.textLight, fontSize: 12))),
+              )
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: ent.customVerdicts.length,
+                itemBuilder: (context, index) {
+                  final v = ent.customVerdicts[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      title: Text(v, style: const TextStyle(fontSize: 14)),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline, color: AppTheme.errorColor),
+                        onPressed: () async {
+                          final newList = List<String>.from(ent.customVerdicts)..removeAt(index);
+                          await db.updateCustomVerdicts(newList);
+                        },
+                      ),
+                    ),
+                  );
+                },
+              ),
           ],
         ],
       ),

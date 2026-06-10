@@ -131,6 +131,8 @@ class PdfService {
           pw.Text(formatter.format(p.createdAt), style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
           pw.Text(p.name, style: const pw.TextStyle(fontSize: 7)),
           pw.Text(p.phone, style: const pw.TextStyle(fontSize: 7, color: PdfColors.blue)),
+          if (p.numeroWhatsApp.isNotEmpty)
+            pw.Text('WA: ${p.numeroWhatsApp}', style: const pw.TextStyle(fontSize: 7, color: PdfColors.green)),
         ],
       ),
     );

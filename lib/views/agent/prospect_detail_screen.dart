@@ -83,7 +83,9 @@ class _ProspectDetailScreenState extends State<ProspectDetailScreen> {
                   children: [
                     _buildInfoTile(Icons.person, "Nom Complet", prospect.name, Colors.white),
                     _buildInfoTile(Icons.phone, "Téléphone", prospect.phone, Colors.white),
-                    if (prospect.isWhatsApp)
+                    if (prospect.numeroWhatsApp.isNotEmpty)
+                      _buildInfoTile(Icons.chat_bubble_outline, "WhatsApp", prospect.numeroWhatsApp, Colors.green.shade300),
+                    if (prospect.isWhatsApp && prospect.numeroWhatsApp.isEmpty)
                       Padding(
                         padding: const EdgeInsets.only(left: 24, bottom: 4),
                         child: Row(
@@ -148,7 +150,7 @@ class _ProspectDetailScreenState extends State<ProspectDetailScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () => _sendWhatsApp(db, prospect.phone),
+                    onPressed: () => _sendWhatsApp(db, prospect.numeroWhatsApp.isNotEmpty ? prospect.numeroWhatsApp : prospect.phone),
                     icon: const Icon(Icons.chat_bubble_outline),
                     label: const Text("WhatsApp"),
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.green),

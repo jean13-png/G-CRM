@@ -91,6 +91,7 @@ class Enterprise {
   final List<MessageTemplate> messageTemplates;
   final String defaultCountryCode; // e.g., "229" for Benin
   final bool autoAssignToAgent; // If true, prospects added by agents are auto-assigned for follow-up
+  final List<String> customVerdicts; // Custom call outcomes defined by enterprise
 
   Enterprise({
     required this.id,
@@ -105,12 +106,22 @@ class Enterprise {
     this.messageTemplates = const [],
     this.defaultCountryCode = '229',
     this.autoAssignToAgent = false,
+    this.customVerdicts = const [],
   });
+
+  static List<String> get platformDefaultVerdicts => [
+    'Succès',
+    'Refus',
+    'Injoignable',
+    'En attente',
+    'Rendez-vous',
+  ];
 
   static List<ProspectFieldSetting> get defaultSettings => [
     ProspectFieldSetting(id: 'nom', label: 'Nom', required: true, enabled: true),
     ProspectFieldSetting(id: 'prenom', label: 'Prénom', required: true, enabled: true),
-    ProspectFieldSetting(id: 'telephone', label: 'Téléphone', required: true, enabled: true),
+    ProspectFieldSetting(id: 'telephone', label: 'Numéro de Téléphone', required: true, enabled: true),
+    ProspectFieldSetting(id: 'numeroWhatsApp', label: 'Numéro WhatsApp', required: false, enabled: false),
     ProspectFieldSetting(id: 'email', label: 'Email', required: false, enabled: true),
     ProspectFieldSetting(id: 'entreprise', label: 'Entreprise prospectée', required: false, enabled: true),
     ProspectFieldSetting(id: 'note', label: 'Note / Commentaire', required: false, enabled: true),
@@ -129,6 +140,7 @@ class Enterprise {
     List<MessageTemplate>? messageTemplates,
     String? defaultCountryCode,
     bool? autoAssignToAgent,
+    List<String>? customVerdicts,
   }) {
     return Enterprise(
       id: id ?? this.id,
@@ -143,6 +155,7 @@ class Enterprise {
       messageTemplates: messageTemplates ?? this.messageTemplates,
       defaultCountryCode: defaultCountryCode ?? this.defaultCountryCode,
       autoAssignToAgent: autoAssignToAgent ?? this.autoAssignToAgent,
+      customVerdicts: customVerdicts ?? this.customVerdicts,
     );
   }
 
@@ -160,6 +173,7 @@ class Enterprise {
       'messageTemplates': messageTemplates.map((x) => x.toMap()).toList(),
       'defaultCountryCode': defaultCountryCode,
       'autoAssignToAgent': autoAssignToAgent,
+      'customVerdicts': customVerdicts,
     };
   }
 
@@ -183,6 +197,7 @@ class Enterprise {
           : const [],
       defaultCountryCode: map['defaultCountryCode'] ?? '229',
       autoAssignToAgent: map['autoAssignToAgent'] ?? false,
+      customVerdicts: List<String>.from(map['customVerdicts'] ?? []),
     );
   }
 
