@@ -1240,22 +1240,22 @@ class _SettingsTabState extends State<_SettingsTab> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                ChoiceChip(
-                  label: const Text("Formulaire", style: TextStyle(fontSize: 12)),
-                  selected: _activeSettingIndex == 0,
-                  onSelected: (val) => val ? setState(() => _activeSettingIndex = 0) : null,
+                _buildModernChip(
+                  label: "Formulaire",
+                  index: 0,
+                  isSelected: _activeSettingIndex == 0,
                 ),
                 const SizedBox(width: 8),
-                ChoiceChip(
-                  label: const Text("Configuration Email", style: TextStyle(fontSize: 12)),
-                  selected: _activeSettingIndex == 1,
-                  onSelected: (val) => val ? setState(() => _activeSettingIndex = 1) : null,
+                _buildModernChip(
+                  label: "Configuration Email",
+                  index: 1,
+                  isSelected: _activeSettingIndex == 1,
                 ),
                 const SizedBox(width: 8),
-                ChoiceChip(
-                  label: const Text("Configuration App", style: TextStyle(fontSize: 12)),
-                  selected: _activeSettingIndex == 2,
-                  onSelected: (val) => val ? setState(() => _activeSettingIndex = 2) : null,
+                _buildModernChip(
+                  label: "Configuration App",
+                  index: 2,
+                  isSelected: _activeSettingIndex == 2,
                 ),
               ],
             ),
@@ -1405,6 +1405,38 @@ class _SettingsTabState extends State<_SettingsTab> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildModernChip({required String label, required int index, required bool isSelected}) {
+    return InkWell(
+      onTap: () => setState(() => _activeSettingIndex = index),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? AppTheme.primaryColor : Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? AppTheme.primaryColor : Colors.grey.shade300,
+          ),
+          boxShadow: isSelected ? [
+            BoxShadow(
+              color: AppTheme.primaryColor.withOpacity(0.3),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            )
+          ] : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.black87,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            fontSize: 12,
+          ),
+        ),
       ),
     );
   }

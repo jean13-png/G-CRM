@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 class AppTheme {
   // Brand color scheme
-  static const Color primaryColor = Color(0xFFF57C00); // Orange
-  static const Color primaryLight = Color(0xFFFFB74D);
-  static const Color primaryDark = Color(0xFFE65100);
+  static const Color primaryColor = Color(0xFFFF7A00); // Orange (Logo & Banner)
+  static const Color primaryLight = Color(0xFFFF9D4D);
+  static const Color primaryDark = Color(0xFFCC6200);
   static const Color secondaryColor = Color(0xFF263238); // Dark Blue Grey
   static const Color backgroundColor = Color(0xFFFAF9F6); // Soft off-white
   static const Color cardColor = Colors.white;

@@ -50,19 +50,19 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyAK8ZlUYC491bFl7WzMxKU0P4kTz9xXOfA',
-    appId: '1:1040561828346:android:3ab5288d937e6d996c7443',
-    messagingSenderId: '1040561828346',
-    projectId: 'gcrm-c2cdd',
-    storageBucket: 'gcrm-c2cdd.firebasestorage.app',
+    apiKey: 'AIzaSyC76qtXNH_RHZhIjvwiK1rRMhX8mJzB-pQ',
+    appId: '1:917985331247:android:8798fa49c58aea807c5eda',
+    messagingSenderId: '917985331247',
+    projectId: 'gcrm-2744f',
+    storageBucket: 'gcrm-2744f.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCpdzwZjrduG8UWKv_8p9OdLi5Ag2eTKlQ',
-    appId: '1:1040561828346:ios:2c1b5a3fb156bbb56c7443',
-    messagingSenderId: '1040561828346',
-    projectId: 'gcrm-c2cdd',
-    storageBucket: 'gcrm-c2cdd.firebasestorage.app',
-    iosBundleId: 'com.gcrm.gCrm',
+    apiKey: 'AIzaSyC76qtXNH_RHZhIjvwiK1rRMhX8mJzB-pQ',
+    appId: '1:917985331247:ios:8798fa49c58aea807c5eda', // Similaire à Android mais pour iOS si configuré
+    messagingSenderId: '917985331247',
+    projectId: 'gcrm-2744f',
+    storageBucket: 'gcrm-2744f.firebasestorage.app',
+    iosBundleId: 'com.g_crm.g_crm',
   );
 }

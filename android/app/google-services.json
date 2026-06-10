@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "1040561828346",
-    "project_id": "gcrm-c2cdd",
-    "storage_bucket": "gcrm-c2cdd.firebasestorage.app"
+    "project_number": "917985331247",
+    "project_id": "gcrm-2744f",
+    "storage_bucket": "gcrm-2744f.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1040561828346:android:3ab5288d937e6d996c7443",
+        "mobilesdk_app_id": "1:917985331247:android:8798fa49c58aea807c5eda",
         "android_client_info": {
           "package_name": "com.g_crm.g_crm"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAK8ZlUYC491bFl7WzMxKU0P4kTz9xXOfA"
+          "current_key": "AIzaSyC76qtXNH_RHZhIjvwiK1rRMhX8mJzB-pQ"
         }
       ],
       "services": {

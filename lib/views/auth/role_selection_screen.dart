@@ -24,7 +24,7 @@ class RoleSelectionScreen extends StatelessWidget {
               child: Stack(
                 children: [
                   Transform.scale(
-                    scale: 1.3, // Zoom level
+                    scale: 1.0, // Reset scale for HD banner
                     child: Image.asset(
                       'assets/images/banner.png',
                       width: double.infinity,
@@ -94,7 +94,7 @@ class RoleSelectionScreen extends StatelessWidget {
                         ),
                         child: Image.asset(
                           'assets/images/logo_new.png',
-                          height: 90,
+                          height: 65,
                           fit: BoxFit.contain,
                           errorBuilder: (context, error, stackTrace) {
                             return Container(
