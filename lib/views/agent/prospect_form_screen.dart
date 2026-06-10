@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../services/database_service.dart';
@@ -229,8 +230,10 @@ class _ProspectFormScreenState extends State<ProspectFormScreen> {
                           final controller = _controllers[field.id];
                           if (controller == null) return const SizedBox.shrink();
 
-                          final isPhone = field.id == 'telephone';
+                          final isPhone = field.id == 'telephone' || field.id == 'numeroWhatsApp';
                           final isEmail = field.id == 'email';
+                          final isNom = field.id == 'nom';
+                          final isPrenom = field.id == 'prenom';
 
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 16.0),
@@ -239,6 +242,13 @@ class _ProspectFormScreenState extends State<ProspectFormScreen> {
                               keyboardType: isPhone 
                                   ? TextInputType.phone 
                                   : (isEmail ? TextInputType.emailAddress : TextInputType.text),
+                              textCapitalization: isNom 
+                                  ? TextCapitalization.characters 
+                                  : (isPrenom ? TextCapitalization.words : TextCapitalization.none),
+                              inputFormatters: [
+                                if (isNom) UpperCaseTextFormatter(),
+                                if (isPrenom) TitleCaseTextFormatter(),
+                              ],
                               decoration: InputDecoration(
                                 labelText: field.label + (field.required ? ' *' : ' (Optionnel)'),
                                 prefixIcon: Icon(_getFieldIcon(field.id)),
@@ -323,5 +333,36 @@ class _ProspectFormScreenState extends State<ProspectFormScreen> {
       default:
         return Icons.edit_note_outlined;
     }
+  }
+}
+
+class UpperCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    return TextEditingValue(
+      text: newValue.text.toUpperCase(),
+      selection: newValue.selection,
+    );
+  }
+}
+
+class TitleCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    if (newValue.text.isEmpty) return newValue;
+
+    final String text = newValue.text;
+    final List<String> words = text.split(' ');
+    final List<String> capitalizedWords = words.map((word) {
+      if (word.isEmpty) return word;
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).toList();
+
+    final String result = capitalizedWords.join(' ');
+
+    return TextEditingValue(
+      text: result,
+      selection: newValue.selection,
+    );
   }
 }
