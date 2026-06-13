@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/database_service.dart';
@@ -11,6 +12,9 @@ import '../chat/enterprise_chat_list_screen.dart';
 import '../notifications/notification_screen.dart';
 import '../../services/pdf_service.dart';
 import '../agent/prospect_detail_screen.dart';
+import '../../app_config.dart';
+import '../../services/whatsapp_service.dart';
+import '../../services/sms_service.dart';
 
 import 'package:intl/intl.dart';
 
@@ -33,7 +37,7 @@ class _EnterpriseDashboardState extends State<EnterpriseDashboard> {
       const _AnalyticsTab(),
       const _AgentsTab(),
       const _HistoryTab(),
-      const _TemplatesTab(),
+      const _CommunicationTab(),
       const _TaskAssignmentTab(),
       const _SettingsTab(),
     ];
@@ -163,9 +167,9 @@ class _EnterpriseDashboardState extends State<EnterpriseDashboard> {
             label: 'Historique',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.message_outlined),
-            activeIcon: Icon(Icons.message),
-            label: 'Modèles',
+            icon: Icon(Icons.send_outlined),
+            activeIcon: Icon(Icons.send),
+            label: 'Communication',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.assignment_turned_in_outlined),
@@ -1084,104 +1088,554 @@ class _HistoryTabState extends State<_HistoryTab> {
   }
 }
 
-// ================= 4. MODÈLES DE MESSAGES TAB =================
-class _TemplatesTab extends StatefulWidget {
-  const _TemplatesTab();
+// ================= 4. COMMUNICATION / MESSAGERIE GROUPÉE TAB =================
+enum _CommView { serviceList, prospectSelection, progress }
+enum _CommService { sms, call, email, whatsapp }
+
+class _CommunicationTab extends StatefulWidget {
+  const _CommunicationTab();
 
   @override
-  State<_TemplatesTab> createState() => _TemplatesTabState();
+  State<_CommunicationTab> createState() => _CommunicationTabState();
 }
 
-class _TemplatesTabState extends State<_TemplatesTab> {
-  final _titleController = TextEditingController();
-  final _contentController = TextEditingController();
+class _CommunicationTabState extends State<_CommunicationTab> {
+  _CommView _currentView = _CommView.serviceList;
+  _CommService? _selectedService;
+  
+  final Set<String> _selectedProspectIds = {};
+  final TextEditingController _messageController = TextEditingController();
+  final TextEditingController _subjectController = TextEditingController();
+  final TextEditingController _limitController = TextEditingController(text: "10");
+  
+  String _activeFilter = 'all'; // all, recently, threeDaysAgo, unreachable, topN
+  String? _selectedTemplate;
+  
+  // Progress tracking
+  int _progressCurrent = 0;
+  int _progressTotal = 0;
+  int _progressSuccess = 0;
+  int _progressFail = 0;
+  bool _isOperationRunning = false;
+  List<String> _operationLogs = [];
 
-  void _showAddDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Nouveau modèle"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(labelText: "Titre (ex: Relance J+1)"),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _contentController,
-              maxLines: 4,
-              decoration: const InputDecoration(labelText: "Contenu du message"),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
-          ElevatedButton(
-            onPressed: () {
-              if (_titleController.text.isNotEmpty && _contentController.text.isNotEmpty) {
-                Provider.of<DatabaseService>(context, listen: false)
-                    .addMessageTemplate(_titleController.text, _contentController.text);
-                _titleController.clear();
-                _contentController.clear();
-                Navigator.pop(context);
-              }
-            },
-            child: const Text("Ajouter"),
-          ),
-        ],
-      ),
-    );
+  @override
+  void dispose() {
+    _messageController.dispose();
+    _subjectController.dispose();
+    _limitController.dispose();
+    super.dispose();
+  }
+
+  void _resetState() {
+    setState(() {
+      _currentView = _CommView.serviceList;
+      _selectedService = null;
+      _selectedProspectIds.clear();
+      _messageController.clear();
+      _subjectController.clear();
+      _selectedTemplate = null;
+      _progressCurrent = 0;
+      _progressTotal = 0;
+      _progressSuccess = 0;
+      _progressFail = 0;
+      _isOperationRunning = false;
+      _operationLogs.clear();
+    });
+  }
+
+  List<Prospect> _applyAdvancedFilter(List<Prospect> prospects) {
+    final now = DateTime.now();
+    List<Prospect> filtered = List.from(prospects);
+
+    switch (_activeFilter) {
+      case 'recently':
+        filtered = filtered.where((p) => now.difference(p.createdAt).inHours <= 24).toList();
+        break;
+      case 'threeDaysAgo':
+        filtered = filtered.where((p) {
+          final diff = now.difference(p.createdAt).inDays;
+          return diff >= 3 && diff < 4;
+        }).toList();
+        break;
+      case 'unreachable':
+        filtered = filtered.where((p) => p.status == 'Injoignable' || p.status == 'unreachable').toList();
+        break;
+      case 'topN':
+        final limit = int.tryParse(_limitController.text) ?? 10;
+        filtered = filtered.take(limit).toList();
+        break;
+    }
+    return filtered;
+  }
+
+  Future<void> _startOperation(DatabaseService db, List<Prospect> targets) async {
+    if (targets.isEmpty) return;
+    
+    if (_selectedService == _CommService.email && _subjectController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sujet requis pour l'email.")));
+      return;
+    }
+    if (_messageController.text.isEmpty && _selectedService != _CommService.whatsapp) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Message requis.")));
+       return;
+    }
+
+    setState(() {
+      _currentView = _CommView.progress;
+      _progressTotal = targets.length;
+      _progressCurrent = 0;
+      _progressSuccess = 0;
+      _progressFail = 0;
+      _isOperationRunning = true;
+      _operationLogs.add("Démarrage de l'opération : ${_getServiceLabel(_selectedService!)}");
+    });
+
+    // Cas spécial pour WhatsApp : envoi direct avec délai anti-ban
+    if (_selectedService == _CommService.whatsapp) {
+      final enterpriseId = db.currentEnterprise?.id;
+      if (enterpriseId != null) {
+        for (var i = 0; i < targets.length; i++) {
+          if (!_isOperationRunning) break;
+
+          final p = targets[i];
+          final name = "${p.data['prenom'] ?? ''} ${p.data['nom'] ?? ''}";
+          bool success = false;
+
+          try {
+            // Envoyer via Evolution API
+            success = await WhatsAppService.sendSingleMessage(
+              enterpriseId: enterpriseId,
+              phone: p.data['telephone'] ?? '',
+              message: _messageController.text,
+            );
+          } catch (e) {
+            debugPrint("Erreur envoi WhatsApp: $e");
+          }
+
+          // Mettre à jour la progression
+          setState(() {
+            _progressCurrent = i + 1;
+            if (success) {
+              _progressSuccess++;
+              _operationLogs.add("✅ Succès: $name");
+            } else {
+              _progressFail++;
+              _operationLogs.add("❌ Échec: $name");
+            }
+          });
+
+          // Délai anti-ban aléatoire entre 5 et 15 secondes (sauf pour le dernier message)
+          if (i < targets.length - 1) {
+            final randomDelay = 5 + (10 * (0.5 + 0.5 * (DateTime.now().millisecond / 1000))).toInt();
+            await Future.delayed(Duration(seconds: randomDelay));
+          }
+        }
+
+        setState(() {
+          _isOperationRunning = false;
+        });
+      }
+      return;
+    }
+
+    // Traitements normaux pour les autres services
+    for (var i = 0; i < targets.length; i++) {
+      if (!_isOperationRunning) break;
+      
+      final p = targets[i];
+      final name = "${p.data['prenom'] ?? ''} ${p.data['nom'] ?? ''}";
+      
+      bool success = false;
+      try {
+        switch (_selectedService!) {
+          case _CommService.email:
+            success = await db.sendEmailToProspect(
+              prospectId: p.id, 
+              subject: _subjectController.text, 
+              content: _messageController.text
+            );
+            break;
+          case _CommService.sms:
+            success = await db.sendBulkSms([p], _messageController.text);
+            break;
+          case _CommService.call:
+            success = await db.initiateAutoCalls([p], _messageController.text);
+            break;
+          case _CommService.whatsapp:
+            // Déjà traité ci-dessus
+            break;
+        }
+      } catch (e) {
+        success = false;
+      }
+
+      setState(() {
+        _progressCurrent = i + 1;
+        if (success) {
+          _progressSuccess++;
+          _operationLogs.add("✅ Succès : $name");
+        } else {
+          _progressFail++;
+          _operationLogs.add("❌ Échec : $name");
+        }
+      });
+      
+      // Petit délai entre les opérations pour éviter les limites de taux
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    setState(() {
+      _isOperationRunning = false;
+      _operationLogs.add("Opération terminée.");
+    });
+  }
+
+  String _getServiceLabel(_CommService service) {
+    switch (service) {
+      case _CommService.sms: return "SMS Groupé";
+      case _CommService.call: return "Appel Automatique";
+      case _CommService.email: return "Email Groupé";
+      case _CommService.whatsapp: return "WhatsApp Groupé";
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final db = Provider.of<DatabaseService>(context);
-    final templates = db.currentEnterprise?.messageTemplates ?? [];
+    
+    switch (_currentView) {
+      case _CommView.serviceList:
+        return _buildServiceList();
+      case _CommView.prospectSelection:
+        return _buildProspectSelection(db);
+      case _CommView.progress:
+        return _buildProgressView();
+    }
+  }
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddDialog,
-        backgroundColor: AppTheme.primaryColor,
-        child: const Icon(Icons.add, color: Colors.white),
+  Widget _buildServiceList() {
+    return GridView.count(
+      padding: const EdgeInsets.all(20),
+      crossAxisCount: 2,
+      mainAxisSpacing: 20,
+      crossAxisSpacing: 20,
+      childAspectRatio: 0.85, // Donne plus de hauteur aux cartes pour éviter les débordements
+      children: [
+        _buildServiceCard(_CommService.sms, Icons.sms, Colors.green, "Envoyez des SMS à vos prospects en un clic."),
+        _buildServiceCard(_CommService.call, Icons.phone_callback, Colors.orange, "Lancez des appels automatisés avec message vocal."),
+        _buildServiceCard(_CommService.email, Icons.email, Colors.blue, "Envoyez des emails personnalisés en masse."),
+        _buildServiceCard(_CommService.whatsapp, Icons.chat, Colors.teal, "Contactez vos prospects via WhatsApp (Automatisé)."),
+      ],
+    );
+  }
+
+  Widget _buildServiceCard(_CommService service, IconData icon, Color color, String desc) {
+    return InkWell(
+      onTap: () => setState(() {
+        _selectedService = service;
+        _currentView = _CommView.prospectSelection;
+      }),
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 36, color: color),
+              const SizedBox(height: 8),
+              Text(
+                _getServiceLabel(service),
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              const SizedBox(height: 4),
+              Flexible(
+                child: Text(
+                  desc,
+                  textAlign: TextAlign.center,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 10, color: AppTheme.textLight),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text(
-              "Modèles de messages pour les agents",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.secondaryColor),
+    );
+  }
+
+  Widget _buildProspectSelection(DatabaseService db) {
+    final allProspects = db.getProspectsForCurrentEnterprise();
+    final filteredProspects = _applyAdvancedFilter(allProspects);
+    final templates = db.currentEnterprise?.messageTemplates ?? [];
+    final selectedTargets = filteredProspects.where((p) => _selectedProspectIds.contains(p.id)).toList();
+
+    return Column(
+      children: [
+        AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: AppTheme.secondaryColor),
+            onPressed: () => setState(() => _currentView = _CommView.serviceList),
+          ),
+          title: Text(_getServiceLabel(_selectedService!), style: const TextStyle(color: AppTheme.secondaryColor, fontSize: 18, fontWeight: FontWeight.bold)),
+        ),
+        
+        // Advanced Filters
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              _buildFilterChip("Tous", 'all'),
+              _buildFilterChip("Dernières 24h", 'recently'),
+              _buildFilterChip("Il y a 3 jours", 'three_days'), // In code logic it was threeDaysAgo, fixing below
+              _buildFilterChip("Injoignables", 'unreachable'),
+              _buildFilterChip("Top N", 'topN'),
+            ],
+          ),
+        ),
+
+        if (_activeFilter == 'topN')
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                const Text("Nombre de prospects : ", style: TextStyle(fontSize: 13)),
+                SizedBox(
+                  width: 60,
+                  height: 35,
+                  child: TextField(
+                    controller: _limitController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 8), border: OutlineInputBorder()),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+              ],
             ),
           ),
-          Expanded(
-            child: templates.isEmpty
-                ? const Center(child: Text("Aucun modèle de message."))
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: templates.length,
-                    itemBuilder: (context, index) {
-                      final t = templates[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: ListTile(
-                          title: Text(t.title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text(t.content, maxLines: 2, overflow: TextOverflow.ellipsis),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline, color: AppTheme.errorColor),
-                            onPressed: () => db.deleteMessageTemplate(t.id),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+
+        // Message Section
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              if (templates.isNotEmpty)
+                DropdownButtonFormField<String?>(
+                  decoration: const InputDecoration(labelText: "Modèle de message", border: OutlineInputBorder()),
+                  value: _selectedTemplate,
+                  items: [const DropdownMenuItem(value: null, child: Text("Aucun")), ...templates.map((t) => DropdownMenuItem(value: t.content, child: Text(t.title)))],
+                  onChanged: (val) => setState(() { _selectedTemplate = val; if (val != null) _messageController.text = val; }),
+                ),
+              const SizedBox(height: 12),
+              if (_selectedService == _CommService.email)
+                TextField(controller: _subjectController, decoration: const InputDecoration(labelText: "Sujet de l'email", border: OutlineInputBorder())),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _messageController,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: "Votre message...", border: OutlineInputBorder()),
+              ),
+            ],
           ),
+        ),
+
+        // Selection Summary & Action
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("${_selectedProspectIds.length} sélectionné(s)", style: const TextStyle(fontWeight: FontWeight.bold)),
+              ElevatedButton(
+                onPressed: _selectedProspectIds.isEmpty ? null : () => _startOperation(db, selectedTargets),
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor, foregroundColor: Colors.white),
+                child: const Text("DÉMARRER"),
+              ),
+            ],
+          ),
+        ),
+
+        const Divider(),
+        
+        // Multi-select actions
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              TextButton.icon(
+                onPressed: () => setState(() => _selectedProspectIds.addAll(filteredProspects.map((p) => p.id))),
+                icon: const Icon(Icons.check_box),
+                label: const Text("Tout cocher"),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() => _selectedProspectIds.clear()),
+                icon: const Icon(Icons.check_box_outline_blank),
+                label: const Text("Tout décocher"),
+              ),
+            ],
+          ),
+        ),
+
+        // List
+        Expanded(
+          child: ListView.builder(
+            itemCount: filteredProspects.length,
+            itemBuilder: (context, index) {
+              final p = filteredProspects[index];
+              final isSelected = _selectedProspectIds.contains(p.id);
+              return CheckboxListTile(
+                value: isSelected,
+                title: Text("${p.data['prenom'] ?? ''} ${p.data['nom'] ?? ''}"),
+                subtitle: Text(p.status, style: TextStyle(fontSize: 12, color: _getStatusColor(p.status))),
+                onChanged: (_) => setState(() => isSelected ? _selectedProspectIds.remove(p.id) : _selectedProspectIds.add(p.id)),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterChip(String label, String value) {
+    final isSelected = _activeFilter == value || (_activeFilter == 'threeDaysAgo' && value == 'three_days');
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(label, style: TextStyle(color: isSelected ? Colors.white : Colors.black, fontSize: 12)),
+        selected: isSelected,
+        onSelected: (val) => setState(() {
+          if (value == 'three_days') _activeFilter = 'threeDaysAgo';
+          else _activeFilter = value;
+          _selectedProspectIds.clear();
+        }),
+        selectedColor: AppTheme.primaryColor,
+        checkmarkColor: Colors.white,
+      ),
+    );
+  }
+
+  Widget _buildProgressView() {
+    final double percent = _progressTotal > 0 ? _progressCurrent / _progressTotal : 0;
+    
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            _isOperationRunning ? "Opération en cours..." : "Opération terminée",
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.secondaryColor),
+          ),
+          const SizedBox(height: 30),
+          
+          // Progress Bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: LinearProgressIndicator(
+              value: percent,
+              minHeight: 20,
+              backgroundColor: Colors.grey.shade200,
+              valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            "${(_progressCurrent)} / $_progressTotal traités (${(percent * 100).toInt()}%)",
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          
+          const SizedBox(height: 40),
+          
+          // Stats Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _buildStatItem("Succès", _progressSuccess, Colors.green),
+              _buildStatItem("Échecs", _progressFail, Colors.red),
+              _buildStatItem("Total", _progressTotal, Colors.blue),
+            ],
+          ),
+          
+          const SizedBox(height: 30),
+          const Text("Journal d'activité", style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          
+          // Logs
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: ListView.builder(
+                reverse: true,
+                itemCount: _operationLogs.length,
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      _operationLogs[_operationLogs.length - 1 - index],
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 20),
+          
+          if (!_isOperationRunning)
+            ElevatedButton(
+              onPressed: _resetState,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.secondaryColor,
+                padding: const EdgeInsets.symmetric(vertical: 15),
+              ),
+              child: const Text("RETOUR AU MENU", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            )
+          else
+            OutlinedButton(
+              onPressed: () => setState(() => _isOperationRunning = false),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                side: const BorderSide(color: Colors.red),
+                padding: const EdgeInsets.symmetric(vertical: 15),
+              ),
+              child: const Text("ARRÊTER L'OPÉRATION", style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
         ],
       ),
     );
+  }
+
+  Widget _buildStatItem(String label, int value, Color color) {
+    return Column(
+      children: [
+        Text(value.toString(), style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)),
+        Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textLight)),
+      ],
+    );
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'Succès': return AppTheme.successColor;
+      case 'Refus': return AppTheme.errorColor;
+      case 'Injoignable':
+      case 'unreachable': return AppTheme.warningColor;
+      default: return Colors.grey;
+    }
   }
 }
 
@@ -1194,7 +1648,7 @@ class _SettingsTab extends StatefulWidget {
 }
 
 class _SettingsTabState extends State<_SettingsTab> {
-  int _activeSettingIndex = 0; // 0: Form, 1: Email, 2: App Config, 3: Verdicts
+  int _activeSettingIndex = 0; // 0: Form, 2: App Config, 3: Verdicts, 4: Modèles, 5: WhatsApp
   List<ProspectFieldSetting> _tempSettings = [];
   bool _isLoaded = false;
 
@@ -1202,8 +1656,19 @@ class _SettingsTabState extends State<_SettingsTab> {
   final _senderEmailController = TextEditingController();
   final _countryCodeController = TextEditingController();
   final _verdictController = TextEditingController();
+  final _templateTitleController = TextEditingController();
+  final _templateContentController = TextEditingController();
+  final _africaTalkingApiKeyController = TextEditingController();
+  final _africaTalkingUsernameController = TextEditingController();
   final _brevoFormKey = GlobalKey<FormState>();
   bool _testingEmail = false;
+  
+  // WhatsApp State
+  String? _whatsappStatus;
+  String? _whatsappQrCode;
+  bool _isConnectingWhatsapp = false;
+  Timer? _whatsappStatusTimer;
+  Map<String, dynamic>? _queueStatus;
 
   @override
   void dispose() {
@@ -1211,7 +1676,79 @@ class _SettingsTabState extends State<_SettingsTab> {
     _senderEmailController.dispose();
     _countryCodeController.dispose();
     _verdictController.dispose();
+    _templateTitleController.dispose();
+    _templateContentController.dispose();
+    _africaTalkingApiKeyController.dispose();
+    _africaTalkingUsernameController.dispose();
+    _whatsappStatusTimer?.cancel();
     super.dispose();
+  }
+
+  // Initialiser la connexion WhatsApp avec Evolution API
+  Future<void> _connectWhatsApp(String enterpriseId) async {
+    setState(() {
+      _isConnectingWhatsapp = true;
+    });
+
+    try {
+      // Créer l'instance et récupérer le QR Code
+      final result = await WhatsAppService.connectInstance(enterpriseId);
+      
+      setState(() {
+        _whatsappQrCode = result['qrCode'];
+        _whatsappStatus = 'qr_ready';
+      });
+
+      // Vérifier le statut périodiquement
+      _whatsappStatusTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+        final statusResult = await WhatsAppService.getInstanceStatus(enterpriseId);
+        setState(() {
+          _whatsappStatus = statusResult['status'];
+          if (statusResult['qrCode'] != null && statusResult['status'] != 'connected') {
+            _whatsappQrCode = statusResult['qrCode'];
+          }
+        });
+
+        if (_whatsappStatus == 'connected') {
+          timer.cancel();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("WhatsApp connecté ! ✔️"), backgroundColor: Colors.green),
+            );
+          }
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erreur: $e"), backgroundColor: AppTheme.errorColor),
+        );
+      }
+    } finally {
+      setState(() {
+        _isConnectingWhatsapp = false;
+      });
+    }
+  }
+
+  // Rafraîchir le statut WhatsApp
+  Future<void> _refreshWhatsAppStatus(String enterpriseId) async {
+    final statusResult = await WhatsAppService.getInstanceStatus(enterpriseId);
+    setState(() {
+      _whatsappStatus = statusResult['status'];
+      if (statusResult['qrCode'] != null && statusResult['status'] != 'connected') {
+        _whatsappQrCode = statusResult['qrCode'];
+      }
+    });
+  }
+
+  // Déconnexion WhatsApp
+  Future<void> _disconnectWhatsApp(String enterpriseId) async {
+    _whatsappStatusTimer?.cancel();
+    setState(() {
+      _whatsappStatus = 'disconnected';
+      _whatsappQrCode = null;
+    });
   }
 
   @override
@@ -1223,9 +1760,11 @@ class _SettingsTabState extends State<_SettingsTab> {
       _tempSettings = List<ProspectFieldSetting>.from(
         ent.formSettings.map((x) => x.copyWith()),
       );
-      _apiKeyController.text = ent.brevoApiKey;
-      _senderEmailController.text = ent.brevoSenderEmail;
+      _apiKeyController.text = AppConfig.brevoApiKey;
+      _senderEmailController.text = AppConfig.brevoSenderEmail;
       _countryCodeController.text = ent.defaultCountryCode;
+      _africaTalkingApiKeyController.text = AppConfig.africaTalkingApiKey;
+      _africaTalkingUsernameController.text = AppConfig.africaTalkingUsername;
       _isLoaded = true;
     }
 
@@ -1249,12 +1788,6 @@ class _SettingsTabState extends State<_SettingsTab> {
                 ),
                 const SizedBox(width: 8),
                 _buildModernChip(
-                  label: "Configuration Email",
-                  index: 1,
-                  isSelected: _activeSettingIndex == 1,
-                ),
-                const SizedBox(width: 8),
-                _buildModernChip(
                   label: "Configuration App",
                   index: 2,
                   isSelected: _activeSettingIndex == 2,
@@ -1264,6 +1797,24 @@ class _SettingsTabState extends State<_SettingsTab> {
                   label: "Verdicts Appels",
                   index: 3,
                   isSelected: _activeSettingIndex == 3,
+                ),
+                const SizedBox(width: 8),
+                _buildModernChip(
+                  label: "Modèles Messages",
+                  index: 4,
+                  isSelected: _activeSettingIndex == 4,
+                ),
+                const SizedBox(width: 8),
+                _buildModernChip(
+                  label: "SMS Gateway",
+                  index: 6,
+                  isSelected: _activeSettingIndex == 6,
+                ),
+                const SizedBox(width: 8),
+                _buildModernChip(
+                  label: "WhatsApp",
+                  index: 5,
+                  isSelected: _activeSettingIndex == 5,
                 ),
               ],
             ),
@@ -1320,46 +1871,6 @@ class _SettingsTabState extends State<_SettingsTab> {
               },
               icon: const Icon(Icons.save),
               label: const Text("Enregistrer les réglages"),
-            ),
-          ] else if (_activeSettingIndex == 1) ...[
-            const Text(
-              "Service d'Envoi d'Email (Brevo API)",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.secondaryColor),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Form(
-                  key: _brevoFormKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      TextFormField(
-                        controller: _apiKeyController,
-                        decoration: const InputDecoration(labelText: "Clé API Brevo v3"),
-                        validator: (v) => v == null || v.trim().isEmpty ? "Clé API requise" : null,
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _senderEmailController,
-                        decoration: const InputDecoration(labelText: "Email expéditeur"),
-                        validator: (v) => v == null || v.trim().isEmpty ? "Email requis" : null,
-                      ),
-                      const SizedBox(height: 20),
-                      ElevatedButton.icon(
-                        onPressed: () async {
-                          if (!_brevoFormKey.currentState!.validate()) return;
-                          await db.updateEnterpriseBrevoSettings(_apiKeyController.text, _senderEmailController.text);
-                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Configuration Brevo enregistrée !"), backgroundColor: AppTheme.successColor));
-                        },
-                        icon: const Icon(Icons.save),
-                        label: const Text("Enregistrer"),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
             ),
           ] else if (_activeSettingIndex == 2) ...[
             const Text(
@@ -1493,7 +2004,292 @@ class _SettingsTabState extends State<_SettingsTab> {
                   );
                 },
               ),
+          ] else if (_activeSettingIndex == 4) ...[
+            const Text(
+              "Modèles de messages pour les agents",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.secondaryColor),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "Prédéfinissez les messages que vos agents pourront utiliser pour contacter les prospects.",
+              style: TextStyle(color: AppTheme.textLight, fontSize: 12, height: 1.3),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      controller: _templateTitleController,
+                      decoration: const InputDecoration(labelText: "Titre du modèle (ex: Relance J+1)"),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _templateContentController,
+                      maxLines: 4,
+                      decoration: const InputDecoration(labelText: "Contenu du message"),
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        if (_templateTitleController.text.isNotEmpty && _templateContentController.text.isNotEmpty) {
+                          Provider.of<DatabaseService>(context, listen: false)
+                              .addMessageTemplate(_templateTitleController.text, _templateContentController.text);
+                          _templateTitleController.clear();
+                          _templateContentController.clear();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Modèle ajouté !"), backgroundColor: AppTheme.successColor),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.add),
+                      label: const Text("Ajouter le modèle"),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            if (ent.messageTemplates.isEmpty)
+              const Center(child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Text("Aucun modèle de message.", style: TextStyle(color: AppTheme.textLight)),
+              ))
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: ent.messageTemplates.length,
+                itemBuilder: (context, index) {
+                  final t = ent.messageTemplates[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ListTile(
+                      title: Text(t.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text(t.content, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline, color: AppTheme.errorColor),
+                        onPressed: () => db.deleteMessageTemplate(t.id),
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ] else if (_activeSettingIndex == 5) ...[
+            const Text(
+              "Connexion WhatsApp",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.secondaryColor),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "1. Cliquez sur \"Connecter WhatsApp\"\n2. Scannez le QR Code avec votre téléphone\n3. C'est prêt !",
+              style: TextStyle(color: AppTheme.textLight, fontSize: 12),
+            ),
+            const SizedBox(height: 24),
+            
+            // Status Card
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.chat, color: _whatsappStatus == 'connected' ? Colors.green.shade600 : Colors.grey.shade400, size: 28),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text("Statut", style: TextStyle(fontWeight: FontWeight.bold)),
+                              Text(
+                                _getWhatsAppStatusText(),
+                                style: TextStyle(
+                                  color: _whatsappStatus == 'connected' ? Colors.green : 
+                                         _whatsappStatus == 'qr_ready' ? Colors.orange : Colors.grey,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    
+                    // QR Code
+                    if (_whatsappQrCode != null && _whatsappStatus != 'connected') ...[
+                      const Text("Scannez le QR Code", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey.shade300),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Image.memory(
+                            Uri.parse('data:image/png;base64,$_whatsappQrCode').data!.contentAsBytes(),
+                            width: 200,
+                            height: 200,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    
+                    // Actions
+                    if (_whatsappStatus == 'connected') ...[
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade600, foregroundColor: Colors.white),
+                        icon: const Icon(Icons.logout),
+                        onPressed: () => _disconnectWhatsApp(ent.id),
+                        label: const Text("Déconnecter WhatsApp"),
+                      ),
+                    ] else ...[
+                      ElevatedButton.icon(
+                        onPressed: _isConnectingWhatsapp ? null : () => _connectWhatsApp(ent.id),
+                        icon: _isConnectingWhatsapp ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.qr_code_scanner),
+                        label: Text(_isConnectingWhatsapp ? "Connexion en cours..." : "Connecter WhatsApp"),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 24),
+            
+            // Queue Status
+            if (_queueStatus != null) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text("Statut de la file d'attente", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 12,
+                        children: [
+                          _buildQueueStatusItem("En attente", _queueStatus!['pending'] ?? 0, Colors.orange),
+                          _buildQueueStatusItem("Envoyés", _queueStatus!['sent'] ?? 0, Colors.green),
+                          _buildQueueStatusItem("Échoués", _queueStatus!['failed'] ?? 0, Colors.red),
+                          _buildQueueStatusItem("Numéros invalides", _queueStatus!['invalid_number'] ?? 0, Colors.grey),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ] else if (_activeSettingIndex == 6) ...[
+            const Text(
+              "Configuration SMS Gateway (Local)",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.secondaryColor),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "Connectez votre téléphone Android pour envoyer des SMS gratuitement depuis G-CRM.",
+              style: TextStyle(color: AppTheme.textLight, fontSize: 12, height: 1.3),
+            ),
+            const SizedBox(height: 24),
+            
+            // Configuration Card
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Gateway URL
+                    const Text("URL du Gateway (Téléphone)", style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    const Text("URL fournie par l'application Android SMS Gateway.", style: TextStyle(fontSize: 11, color: AppTheme.textLight)),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: TextEditingController(),
+                      decoration: const InputDecoration(
+                        hintText: "http://192.168.x.x:8080",
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // API Token
+                    const Text("Token API (Téléphone)", style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    const Text("Token généré par l'application Android SMS Gateway.", style: TextStyle(fontSize: 11, color: AppTheme.textLight)),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: TextEditingController(),
+                      decoration: const InputDecoration(
+                        hintText: "Votre token API",
+                        border: OutlineInputBorder(),
+                      ),
+                      obscureText: true,
+                    ),
+                    const SizedBox(height: 24),
+                    
+                    // Action Button
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+                      icon: const Icon(Icons.save),
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Pour commencer, lancez d'abord le microservice sms-service !"), backgroundColor: Colors.orange),
+                        );
+                      },
+                      label: const Text("Sauvegarder la configuration"),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
+        ],
+      ),
+    );
+  }
+
+  String _getWhatsAppStatusText() {
+    switch (_whatsappStatus) {
+      case 'connected':
+        return 'Connecté ✔️';
+      case 'qr_ready':
+        return 'QR Code prêt à scanner';
+      case 'connecting':
+        return 'Connexion en cours...';
+      case 'error':
+        return 'Erreur de connexion au service';
+      case 'disconnected':
+      default:
+        return 'Non connecté';
+    }
+  }
+
+  Widget _buildQueueStatusItem(String label, int count, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            count.toString(),
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: color),
+          ),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(fontSize: 12, color: Colors.black54)),
         ],
       ),
     );

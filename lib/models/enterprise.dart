@@ -86,8 +86,6 @@ class Enterprise {
   final List<ProspectFieldSetting> formSettings;
   final Map<String, int> dailyEmailCounters;
   final List<String> adminNotifications;
-  final String brevoApiKey;
-  final String brevoSenderEmail;
   final List<MessageTemplate> messageTemplates;
   final String defaultCountryCode; // e.g., "229" for Benin
   final bool autoAssignToAgent; // If true, prospects added by agents are auto-assigned for follow-up
@@ -101,8 +99,6 @@ class Enterprise {
     required this.formSettings,
     this.dailyEmailCounters = const {},
     this.adminNotifications = const [],
-    this.brevoApiKey = '',
-    this.brevoSenderEmail = '',
     this.messageTemplates = const [],
     this.defaultCountryCode = '229',
     this.autoAssignToAgent = false,
@@ -135,8 +131,6 @@ class Enterprise {
     List<ProspectFieldSetting>? formSettings,
     Map<String, int>? dailyEmailCounters,
     List<String>? adminNotifications,
-    String? brevoApiKey,
-    String? brevoSenderEmail,
     List<MessageTemplate>? messageTemplates,
     String? defaultCountryCode,
     bool? autoAssignToAgent,
@@ -150,8 +144,6 @@ class Enterprise {
       formSettings: formSettings ?? this.formSettings,
       dailyEmailCounters: dailyEmailCounters ?? this.dailyEmailCounters,
       adminNotifications: adminNotifications ?? this.adminNotifications,
-      brevoApiKey: brevoApiKey ?? this.brevoApiKey,
-      brevoSenderEmail: brevoSenderEmail ?? this.brevoSenderEmail,
       messageTemplates: messageTemplates ?? this.messageTemplates,
       defaultCountryCode: defaultCountryCode ?? this.defaultCountryCode,
       autoAssignToAgent: autoAssignToAgent ?? this.autoAssignToAgent,
@@ -165,12 +157,10 @@ class Enterprise {
       'name': name,
       'email': email,
       'logoUrl': logoUrl,
-      'formSettings': formSettings.map((x) => x.toMap()).toList(),
+      'formSettings': formSettings.map((s) => s.toMap()).toList(),
       'dailyEmailCounters': dailyEmailCounters,
       'adminNotifications': adminNotifications,
-      'brevoApiKey': brevoApiKey,
-      'brevoSenderEmail': brevoSenderEmail,
-      'messageTemplates': messageTemplates.map((x) => x.toMap()).toList(),
+      'messageTemplates': messageTemplates.map((t) => t.toMap()).toList(),
       'defaultCountryCode': defaultCountryCode,
       'autoAssignToAgent': autoAssignToAgent,
       'customVerdicts': customVerdicts,
@@ -189,8 +179,6 @@ class Enterprise {
           : defaultSettings,
       dailyEmailCounters: Map<String, int>.from(map['dailyEmailCounters'] ?? {}),
       adminNotifications: List<String>.from(map['adminNotifications'] ?? []),
-      brevoApiKey: map['brevoApiKey'] ?? '',
-      brevoSenderEmail: map['brevoSenderEmail'] ?? '',
       messageTemplates: map['messageTemplates'] != null
           ? List<MessageTemplate>.from(
               map['messageTemplates'].map((x) => MessageTemplate.fromMap(x)))

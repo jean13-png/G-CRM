@@ -8,12 +8,16 @@ import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../app_config.dart';
 import '../models/enterprise.dart';
 import '../models/agent.dart';
 import '../models/prospect.dart';
 import '../models/task.dart';
 import '../models/chat_message.dart';
 import '../models/app_notification.dart';
+import 'sms_service.dart';
+import 'whatsapp_service.dart';
 
 class DatabaseService extends ChangeNotifier {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -516,6 +520,12 @@ class DatabaseService extends ChangeNotifier {
       'customVerdicts': verdicts,
     });
   }
+
+  // Update Africa's Talking settings (Géré globalement via AppConfig)
+  Future<void> updateAfricaTalkingSettings(String apiKey, String username) async {}
+
+  // Update Twilio settings (Géré globalement via AppConfig)
+  Future<void> updateTwilioSettings(String accountSid, String authToken, String phoneNumber) async {}
 
   // Format phone number for WhatsApp/SMS
   String formatPhoneNumber(String phone) {
@@ -1034,8 +1044,14 @@ class DatabaseService extends ChangeNotifier {
     }
 
     final bool emailSentSuccessfully;
-    if (_currentEnterprise!.brevoApiKey.isNotEmpty && _currentEnterprise!.brevoSenderEmail.isNotEmpty) {
-      emailSentSuccessfully = await _sendEmailViaBrevo(prospect.email, subject, content);
+    if (AppConfig.brevoApiKey.isNotEmpty && AppConfig.brevoSenderEmail.isNotEmpty) {
+      emailSentSuccessfully = await _sendEmailViaBrevo(
+        prospect.email,
+        subject,
+        content,
+        customSenderEmail: _currentEnterprise?.email,
+        customSenderName: _currentEnterprise?.name,
+      );
     } else {
       emailSentSuccessfully = await _simulateEmailSending(prospect.email, subject, content);
     }
@@ -1209,11 +1225,10 @@ class DatabaseService extends ChangeNotifier {
     }
   }
 
-  Future<bool> _sendEmailViaBrevo(String to, String subject, String body) async {
-    if (_currentEnterprise == null) return false;
-    final apiKey = _currentEnterprise!.brevoApiKey;
-    final senderEmail = _currentEnterprise!.brevoSenderEmail;
-    final senderName = _currentEnterprise!.name;
+  Future<bool> _sendEmailViaBrevo(String to, String subject, String body, {String? customSenderEmail, String? customSenderName}) async {
+    final apiKey = AppConfig.brevoApiKey;
+    final senderEmail = customSenderEmail ?? AppConfig.brevoSenderEmail;
+    final senderName = customSenderName ?? AppConfig.brevoSenderName;
 
     try {
       final response = await http.post(
@@ -1271,6 +1286,8 @@ class DatabaseService extends ChangeNotifier {
       destinationEmail,
       "Test de configuration Brevo - G-CRM",
       "Félicitations !\n\nVotre configuration de service de messagerie Brevo sur G-CRM fonctionne parfaitement.\n\nCordialement,\nL'équipe G-CRM.",
+      customSenderEmail: _currentEnterprise?.email,
+      customSenderName: _currentEnterprise?.name,
     );
   }
 
@@ -1289,19 +1306,19 @@ class DatabaseService extends ChangeNotifier {
     final bytes = utf8.encode(csvString);
     final base64Csv = base64.encode(bytes);
 
-    if (_currentEnterprise!.brevoApiKey.isNotEmpty && _currentEnterprise!.brevoSenderEmail.isNotEmpty) {
+    if (AppConfig.brevoApiKey.isNotEmpty && AppConfig.brevoSenderEmail.isNotEmpty) {
       try {
         final response = await http.post(
           Uri.parse('https://api.brevo.com/v3/smtp/email'),
           headers: {
             'accept': 'application/json',
-            'api-key': _currentEnterprise!.brevoApiKey,
+            'api-key': AppConfig.brevoApiKey,
             'content-type': 'application/json',
           },
           body: json.encode({
             'sender': {
-              'name': _currentEnterprise!.name,
-              'email': _currentEnterprise!.brevoSenderEmail,
+              'name': _currentEnterprise?.name ?? AppConfig.brevoSenderName,
+              'email': _currentEnterprise?.email ?? AppConfig.brevoSenderEmail,
             },
             'to': [
               {
@@ -1333,6 +1350,194 @@ class DatabaseService extends ChangeNotifier {
     } else {
       await Future.delayed(const Duration(seconds: 1));
       return true;
+    }
+  }
+
+  // ===================== BULK COMMUNICATION METHODS =====================
+
+  // Send bulk emails via Brevo
+  Future<bool> sendBulkEmail(List<Prospect> prospects, String subject, String body) async {
+    if (AppConfig.brevoApiKey.isEmpty || AppConfig.brevoSenderEmail.isEmpty) {
+      return false;
+    }
+
+    // Filter prospects with emails
+    final prospectsWithEmail = prospects.where((p) => p.data['email'] != null && p.data['email']!.isNotEmpty).toList();
+    if (prospectsWithEmail.isEmpty) return false;
+
+    try {
+      // Send one by one to avoid Brevo bulk issues for small lists
+      for (final prospect in prospectsWithEmail) {
+        final toEmail = prospect.data['email']!;
+        await _sendEmailViaBrevo(
+          toEmail,
+          subject,
+          body,
+          customSenderEmail: _currentEnterprise?.email,
+          customSenderName: _currentEnterprise?.name,
+        );
+        await Future.delayed(const Duration(milliseconds: 100)); // Rate limit
+      }
+      return true;
+    } catch (e) {
+      debugPrint("Error sending bulk emails: $e");
+      return false;
+    }
+  }
+
+  // Send bulk SMS via Africa's Talking (Simplifié pour l'utilisateur)
+  // Fallback sur le Local Android Gateway si Africa's Talking non configuré
+  Future<bool> sendBulkSms(List<Prospect> prospects, String message) async {
+    // Filter prospects with phone numbers
+    final prospectsWithPhone = prospects.where((p) => p.data['telephone'] != null && p.data['telephone']!.isNotEmpty).toList();
+    if (prospectsWithPhone.isEmpty) return false;
+
+    // Format phone numbers
+    final List<String> phoneNumbers = prospectsWithPhone.map((p) => formatPhoneNumber(p.data['telephone']!)).toList();
+    final enterpriseId = _currentEnterprise?.id ?? 'local';
+
+    // Essayer d'abord avec Africa's Talking (plus simple pour l'utilisateur)
+    if (AppConfig.africaTalkingApiKey.isNotEmpty && AppConfig.africaTalkingUsername.isNotEmpty) {
+      try {
+        final success = await _sendSmsViaAfricaTalking(phoneNumbers, message);
+        if (success) {
+          debugPrint('Bulk SMS envoyé avec succès via Africa\'s Talking');
+          return true;
+        }
+      } catch (e) {
+        debugPrint("Erreur avec Africa's Talking: $e, tentative avec Local Gateway...");
+      }
+    }
+
+    // Fallback sur le Local Android Gateway
+    try {
+      final result = await SmsService.sendBulkSms(phoneNumbers, message, enterpriseId);
+      debugPrint('Bulk SMS result via Local Gateway: $result');
+      return result['success'] ?? false;
+    } catch (e) {
+      debugPrint("Error sending bulk SMS: $e");
+      return false;
+    }
+  }
+
+  // Envoyer SMS via Africa's Talking
+  Future<bool> _sendSmsViaAfricaTalking(List<String> phoneNumbers, String message) async {
+    try {
+      const String url = 'https://api.africastalking.com/version1/messaging';
+      
+      debugPrint("Using AT Credentials for SMS: Username=${AppConfig.africaTalkingUsername}, APIKey=${AppConfig.africaTalkingApiKey.substring(0, 5)}...");
+      
+      // Formater les numéros en +XXXXXXXXX
+      final formattedNumbers = phoneNumbers.map((num) {
+        if (!num.startsWith('+')) {
+          return '+$num';
+        }
+        return num;
+      }).join(',');
+
+      final body = {
+        'username': AppConfig.africaTalkingUsername,
+        'to': formattedNumbers,
+        'message': message,
+        'from': AppConfig.africaTalkingPhoneNumber.isEmpty ? null : AppConfig.africaTalkingPhoneNumber,
+      };
+
+      // Filtrer les valeurs nulles
+      final filteredBody = Map.fromEntries(
+        body.entries.where((entry) => entry.value != null)
+      );
+
+      debugPrint("Sending SMS via Africa's Talking to: $formattedNumbers");
+
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'apiKey': AppConfig.africaTalkingApiKey,
+          'Accept': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: filteredBody,
+      );
+
+      debugPrint("AT SMS Response: ${response.statusCode} - ${response.body}");
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint("Error sending SMS via Africa's Talking: $e");
+      rethrow;
+    }
+  }
+
+  // Open WhatsApp with pre-filled message for each prospect (semi-manual)
+  Future<void> openWhatsAppBulk(List<Prospect> prospects, String message) async {
+    // Filter prospects with phone numbers
+    final prospectsWithPhone = prospects.where((p) => p.data['telephone'] != null && p.data['telephone']!.isNotEmpty).toList();
+    if (prospectsWithPhone.isEmpty) return;
+
+    // Open first one, user can do others manually
+    final firstProspect = prospectsWithPhone.first;
+    final phoneNumber = formatPhoneNumber(firstProspect.data['telephone']!);
+    final encodedMessage = Uri.encodeComponent(message);
+    final whatsappUrl = 'https://wa.me/$phoneNumber?text=$encodedMessage';
+
+    if (await canLaunchUrl(Uri.parse(whatsappUrl))) {
+      await launchUrl(Uri.parse(whatsappUrl));
+    }
+  }
+
+  // Initiate automated calls via Africa's Talking
+  Future<bool> initiateAutoCalls(List<Prospect> prospects, String messageText) async {
+    if (AppConfig.africaTalkingApiKey.isEmpty || AppConfig.africaTalkingUsername.isEmpty) {
+      return false;
+    }
+
+    // Filter prospects with phone numbers
+    final prospectsWithPhone = prospects.where((p) => p.data['telephone'] != null && p.data['telephone']!.isNotEmpty).toList();
+    if (prospectsWithPhone.isEmpty) return false;
+
+    try {
+      // Africa's Talking Voice API endpoint
+      const String url = 'https://voice.africastalking.com/call';
+      
+      debugPrint("Using AT Credentials: Username=${AppConfig.africaTalkingUsername}, APIKey=${AppConfig.africaTalkingApiKey.substring(0, 5)}...");
+      
+      // We process one by one or via bulk if AT supports it
+      for (final prospect in prospectsWithPhone) {
+        final phoneNumber = formatPhoneNumber(prospect.data['telephone']!);
+        
+        final body = {
+          'username': AppConfig.africaTalkingUsername,
+          'from': AppConfig.africaTalkingPhoneNumber.isEmpty ? '+229' : AppConfig.africaTalkingPhoneNumber,
+          'to': '+$phoneNumber',
+        };
+        
+        debugPrint("Calling $phoneNumber with body: $body");
+
+        final response = await http.post(
+          Uri.parse(url),
+          headers: {
+            'apiKey': AppConfig.africaTalkingApiKey,
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: body,
+        );
+
+        debugPrint("AT Voice Response: ${response.statusCode} - ${response.body}");
+
+        if (response.statusCode != 200 && response.statusCode != 201) {
+          debugPrint("Failed to initiate call to $phoneNumber. Status: ${response.statusCode}");
+        }
+      }
+
+      debugPrint("Attempted to initiate auto calls for ${prospectsWithPhone.length} prospects via Africa's Talking");
+      return true;
+    } catch (e) {
+      debugPrint("Error initiating auto calls: $e");
+      return false;
     }
   }
 }

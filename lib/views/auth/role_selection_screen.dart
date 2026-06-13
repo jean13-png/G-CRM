@@ -26,7 +26,7 @@ class RoleSelectionScreen extends StatelessWidget {
                   Transform.scale(
                     scale: 1.0, // Reset scale for HD banner
                     child: Image.asset(
-                      'assets/images/banner.png',
+                      'assets/images/banière_nzw.png',
                       width: double.infinity,
                       height: double.infinity,
                       fit: BoxFit.cover,
@@ -34,20 +34,16 @@ class RoleSelectionScreen extends StatelessWidget {
                       errorBuilder: (context, error, stackTrace) {
                         return Container(
                           decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [AppTheme.secondaryColor, AppTheme.primaryColor],
-                            ),
+                            color: AppTheme.secondaryColor,
                           ),
                         );
                       },
                     ),
                   ),
-                  // Slight blur and dark overlay for readability
+                  // Slight dark overlay for readability (reduced opacity)
                   Container(
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.3),
+                      color: Colors.black.withOpacity(0.1),
                     ),
                   ),
                   const Center(
