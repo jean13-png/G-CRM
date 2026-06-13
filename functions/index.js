@@ -8,19 +8,31 @@ const db = admin.firestore();
 const EVOLUTION_API_URL = "https://evolution-api-latest-62vs.onrender.com";
 const EVOLUTION_API_KEY = "TechPlusKey2026!";
 
-// Fonction pour traiter la queue WhatsApp
-exports.processWhatsAppQueue = functions.firestore
+// Fonction pour traiter la queue WhatsApp (1 instance max = envois séquentiels)
+exports.processWhatsAppQueue = functions
+  .runWith({ maxInstances: 1, timeoutSeconds: 120 })
+  .firestore
   .document("whatsapp_queue/{messageId}")
   .onCreate(async (snap) => {
     const messageData = snap.data();
     const messageId = snap.id;
 
     try {
-      // Marquer comme en cours
+      // Attendre si un autre message est déjà en cours (sérialisation)
+      const maxWait = 30;
+      for (let i = 0; i < maxWait; i++) {
+        const inProgress = await db.collection("whatsapp_queue")
+          .where("status", "==", "en_cours")
+          .limit(1)
+          .get();
+        if (inProgress.empty || inProgress.docs[0].id === messageId) break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+
       await snap.ref.update({ status: "en_cours" });
 
-      // Délai anti-ban aléatoire (5-15 secondes)
-      const delay = Math.floor(Math.random() * 10000) + 5000;
+      // Délai anti-ban aléatoire (20-45 secondes)
+      const delay = Math.floor(Math.random() * 26000) + 20000;
       await new Promise((resolve) => setTimeout(resolve, delay));
 
       // Envoyer via Evolution API v2

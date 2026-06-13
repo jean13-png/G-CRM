@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -16,97 +17,244 @@ class WhatsAppService {
     return 'crm$shortId';
   }
 
-  // Étape 1: Créer une instance Evolution API et récupérer le QR Code
-  static Future<Map<String, dynamic>> connectInstance(String enterpriseId) async {
+  static String _getBaseUrl() {
+    String baseUrl = AppConfig.evolutionApiUrl.trim();
+    if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+    return baseUrl;
+  }
+
+  static Map<String, String> _headers({bool json = false}) {
+    final headers = {'apikey': AppConfig.evolutionApiKey.trim()};
+    if (json) headers['Content-Type'] = 'application/json';
+    return headers;
+  }
+
+  static String? _extractQrCode(Map<String, dynamic> data) {
+    final raw = data['base64'] ??
+        data['qrcode']?['base64'] ??
+        data['qr']?['base64'];
+    if (raw == null || raw.toString().isEmpty) return null;
+    return raw.toString();
+  }
+
+  // Récupère le QR Code via /instance/connect (endpoint dédié Evolution v2)
+  static Future<String?> fetchQrCode(String enterpriseId) async {
     try {
       final instanceName = _getInstanceName(enterpriseId);
-      final cleanKey = AppConfig.evolutionApiKey.trim();
-      // On s'assure qu'il n'y a pas de slash à la fin de l'URL
-      String baseUrl = AppConfig.evolutionApiUrl.trim();
-      if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
-      
-      final apiUrl = '$baseUrl/instance/create';
-      
-      final headers = {
-        'Content-Type': 'application/json',
-        'apikey': cleanKey,
-      };
+      final response = await http.get(
+        Uri.parse('${_getBaseUrl()}/instance/connect/$instanceName'),
+        headers: _headers(),
+      ).timeout(const Duration(seconds: 20));
 
-      debugPrint('>>> FINAL TRY - URL: $apiUrl');
-      debugPrint('>>> Instance: $instanceName');
-
-      // 1. D'abord, on vérifie si l'instance existe déjà
-      final checkUrl = '$baseUrl/instance/fetchInstances?instanceName=$instanceName';
-      final checkResponse = await http.get(
-        Uri.parse(checkUrl),
-        headers: headers,
-      ).timeout(const Duration(seconds: 15));
-
-      if (checkResponse.statusCode == 200) {
-        final List instances = jsonDecode(checkResponse.body);
-        bool exists = instances.any((inst) => inst['instanceName'] == instanceName);
-        
-        if (exists) {
-          debugPrint('L\'instance $instanceName existe déjà.');
-          return await getInstanceStatus(enterpriseId);
-        }
-      }
-      
-      // 2. Si elle n'existe pas, on la crée
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        headers: headers,
-        body: jsonEncode({
-          'instanceName': instanceName,
-          'qrcode': true,
-        }),
-      ).timeout(const Duration(seconds: 45));
-
-      if (response.statusCode != 200 && response.statusCode != 201) {
-        debugPrint('Détails Erreur ${response.statusCode}: ${response.body}');
-        if (response.body.contains('already exists')) {
-           return await getInstanceStatus(enterpriseId);
-        }
-        throw Exception('Erreur création instance: ${response.statusCode}');
+      if (response.statusCode != 200) {
+        debugPrint('fetchQrCode ${response.statusCode}: ${response.body}');
+        return null;
       }
 
-      final data = jsonDecode(response.body);
-      return {
-        'instanceName': instanceName,
-        'qrCode': data['qr']?['base64'] ?? data['qrcode']?['base64'],
-        'status': data['instance']?['status'] ?? 'connecting',
-      };
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      return _extractQrCode(data);
     } catch (e) {
-      debugPrint('Exception dans connectInstance: $e');
-      throw Exception('Erreur connexion Evolution API: $e');
+      debugPrint('fetchQrCode error: $e');
+      return null;
     }
   }
 
-  // Étape 1 bis : Générer un code d'appairage (Pairing Code) pour connexion sur le même téléphone
-  static Future<String> getPairingCode(String enterpriseId, String phoneNumber) async {
-    try {
-      final instanceName = _getInstanceName(enterpriseId);
-      // Nettoyer le numéro (garder uniquement les chiffres)
-      String cleanPhone = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
-      
-      final headers = {
-        'apikey': AppConfig.evolutionApiKey.trim(),
-        'Authorization': 'Bearer ${AppConfig.evolutionApiKey.trim()}',
-      };
-      
-      final response = await http.get(
-        Uri.parse('${AppConfig.evolutionApiUrl}/instance/connect/pairingCode/$instanceName?number=$cleanPhone'),
-        headers: headers,
-      ).timeout(const Duration(seconds: 10));
+  // Statut + QR combinés (utilisé par l'UI)
+  static Future<Map<String, dynamic>> getConnectionInfo(String enterpriseId) async {
+    final status = await getInstanceStatus(enterpriseId);
+    if (status['status'] == 'connected') return status;
 
-      if (response.statusCode != 200) {
-        throw Exception('Erreur génération code: ${response.body}');
+    final qrCode = await fetchQrCode(enterpriseId);
+    return {
+      'status': status['status'],
+      'qrCode': qrCode ?? status['qrCode'],
+    };
+  }
+
+  static const Duration _deleteTimeout = Duration(seconds: 90);
+  static const Duration _createTimeout = Duration(seconds: 90);
+  static const Duration _fetchTimeout = Duration(seconds: 30);
+
+  // Supprime l'instance Evolution API (reset complet)
+  static Future<void> deleteInstance(String enterpriseId) async {
+    final instanceName = _getInstanceName(enterpriseId);
+    Object? lastError;
+
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      try {
+        debugPrint('deleteInstance $instanceName (tentative $attempt/2)...');
+        final response = await http.delete(
+          Uri.parse('${_getBaseUrl()}/instance/delete/$instanceName'),
+          headers: _headers(),
+        ).timeout(_deleteTimeout);
+
+        if (response.statusCode == 200 || response.statusCode == 404) return;
+        throw Exception('Suppression impossible (${response.statusCode}): ${response.body}');
+      } on TimeoutException catch (e) {
+        lastError = e;
+        debugPrint('deleteInstance timeout (tentative $attempt): $e');
+        if (attempt < 2) {
+          await Future.delayed(const Duration(seconds: 5));
+        }
+      } catch (e) {
+        lastError = e;
+        rethrow;
+      }
+    }
+
+    throw Exception(
+      'Délai dépassé. Veuillez réessayer dans une minute.',
+    );
+  }
+
+  static Future<bool> instanceExists(String enterpriseId) async {
+    final instanceName = _getInstanceName(enterpriseId);
+    final response = await http.get(
+      Uri.parse('${_getBaseUrl()}/instance/fetchInstances?instanceName=$instanceName'),
+      headers: _headers(),
+    ).timeout(_fetchTimeout);
+
+    if (response.statusCode != 200) return false;
+    final List instances = jsonDecode(response.body);
+    return instances.any((inst) =>
+        inst['instanceName'] == instanceName || inst['name'] == instanceName);
+  }
+
+  static Future<Map<String, dynamic>> _createInstance(
+    String enterpriseId, {
+    bool qrcode = true,
+    String? phoneNumber,
+  }) async {
+    final instanceName = _getInstanceName(enterpriseId);
+    final payload = <String, dynamic>{
+      'instanceName': instanceName,
+      'qrcode': qrcode,
+      'integration': 'WHATSAPP-BAILEYS',
+    };
+    if (phoneNumber != null && phoneNumber.isNotEmpty) {
+      payload['number'] = phoneNumber;
+    }
+    final response = await http.post(
+      Uri.parse('${_getBaseUrl()}/instance/create'),
+      headers: _headers(json: true),
+      body: jsonEncode(payload),
+    ).timeout(_createTimeout);
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('Erreur création instance: ${response.statusCode} — ${response.body}');
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  // Demande un code de couplage (crée l'instance + appelle /connect?number=)
+  static Future<String> requestPairingCode(String enterpriseId, String phoneNumber) async {
+    final instanceName = _getInstanceName(enterpriseId);
+    final cleanPhone = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
+
+    try {
+      try {
+        await deleteInstance(enterpriseId);
+      } catch (_) {}
+
+      final createData = await _createInstance(
+        enterpriseId,
+        qrcode: false,
+        phoneNumber: cleanPhone,
+      );
+
+      final fromCreate = createData['qrcode']?['pairingCode']?.toString() ??
+          createData['pairingCode']?.toString();
+      if (fromCreate != null && fromCreate.isNotEmpty) {
+        return fromCreate;
       }
 
-      final data = jsonDecode(response.body);
-      return data['code'] ?? ''; // Le code à 8 caractères
+      // Laisser Baileys initialiser la session avant /connect
+      await Future.delayed(const Duration(seconds: 3));
+
+      return await _fetchPairingCodeFromConnect(instanceName, cleanPhone);
     } catch (e) {
-      throw Exception('Erreur Pairing Code: $e');
+      debugPrint('requestPairingCode: $e');
+      throw Exception('Impossible de générer le code. Réessayez dans quelques instants.');
+    }
+  }
+
+  // Relance une seule demande de couplage (pour recevoir la notif WhatsApp)
+  static Future<void> resendPairingNotification(String enterpriseId, String phoneNumber) async {
+    final instanceName = _getInstanceName(enterpriseId);
+    final cleanPhone = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
+    await http.get(
+      Uri.parse('${_getBaseUrl()}/instance/connect/$instanceName')
+          .replace(queryParameters: {'number': cleanPhone}),
+      headers: _headers(),
+    ).timeout(const Duration(seconds: 30));
+  }
+
+  static Future<String> _fetchPairingCodeFromConnect(
+    String instanceName,
+    String cleanPhone,
+  ) async {
+    final uri = Uri.parse('${_getBaseUrl()}/instance/connect/$instanceName')
+        .replace(queryParameters: {'number': cleanPhone});
+
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      final response = await http.get(uri, headers: _headers())
+          .timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final pairingCode = data['pairingCode']?.toString();
+        if (pairingCode != null && pairingCode.isNotEmpty) {
+          return pairingCode;
+        }
+      }
+
+      if (attempt < 3) {
+        await Future.delayed(const Duration(seconds: 3));
+      }
+    }
+
+    throw Exception('Impossible de générer le code. Réessayez dans quelques instants.');
+  }
+
+  static Future<Map<String, dynamic>> connectInstance(
+    String enterpriseId, {
+    bool forceRecreate = false,
+  }) async {
+    try {
+      final instanceName = _getInstanceName(enterpriseId);
+      debugPrint('>>> Instance: $instanceName (forceRecreate: $forceRecreate)');
+
+      if (!forceRecreate && await instanceExists(enterpriseId)) {
+        debugPrint('L\'instance $instanceName existe déjà.');
+        final info = await getConnectionInfo(enterpriseId);
+        if (info['status'] == 'connected' || info['qrCode'] != null) {
+          return info;
+        }
+      }
+
+      if (await instanceExists(enterpriseId)) {
+        debugPrint('Suppression instance $instanceName avant recréation...');
+        try {
+          await deleteInstance(enterpriseId);
+        } catch (e) {
+          debugPrint('deleteInstance: $e');
+        }
+      }
+
+      final data = await _createInstance(enterpriseId, qrcode: true);
+      var qrCode = _extractQrCode(data);
+      qrCode ??= await fetchQrCode(enterpriseId);
+
+      return {
+        'instanceName': instanceName,
+        'qrCode': qrCode,
+        'status': data['instance']?['status'] ?? 'connecting',
+        'serverIssue': qrCode == null,
+      };
+    } catch (e) {
+      debugPrint('Exception dans connectInstance: $e');
+      throw Exception('Erreur connexion WhatsApp. Réessayez.');
     }
   }
 
@@ -115,13 +263,10 @@ class WhatsAppService {
     try {
       final instanceName = _getInstanceName(enterpriseId);
       
-      final headers = {
-        'apikey': AppConfig.evolutionApiKey.trim(),
-        'Authorization': 'Bearer ${AppConfig.evolutionApiKey.trim()}',
-      };
+      final headers = _headers();
       
       final response = await http.get(
-        Uri.parse('${AppConfig.evolutionApiUrl}/instance/connectionState/$instanceName'),
+        Uri.parse('${_getBaseUrl()}/instance/connectionState/$instanceName'),
         headers: headers,
       ).timeout(const Duration(seconds: 10));
 
@@ -136,7 +281,7 @@ class WhatsAppService {
       
       return {
         'status': state,
-        'qrCode': data['qrcode']?['base64'] ?? data['qr']?['base64'],
+        'qrCode': null,
       };
     } catch (e) {
       return {'status': 'error', 'qrCode': null, 'error': e.toString()};
@@ -200,14 +345,10 @@ class WhatsAppService {
     try {
       final instanceName = _getInstanceName(enterpriseId);
       
-      final headers = {
-        'Content-Type': 'application/json',
-        'apikey': AppConfig.evolutionApiKey.trim(),
-        'Authorization': 'Bearer ${AppConfig.evolutionApiKey.trim()}',
-      };
+      final headers = _headers(json: true);
       
       final response = await http.post(
-        Uri.parse('${AppConfig.evolutionApiUrl}/message/sendText/$instanceName'),
+        Uri.parse('${_getBaseUrl()}/message/sendText/$instanceName'),
         headers: headers,
         body: jsonEncode({
           'number': _formatPhoneNumber(phone),

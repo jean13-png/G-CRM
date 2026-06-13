@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../services/database_service.dart';
 import '../../models/enterprise.dart';
@@ -1506,9 +1509,11 @@ class _CommunicationTabState extends State<_CommunicationTab> {
             log: logMessage,
           );
 
-          // Délai anti-ban aléatoire entre 5 et 15 secondes (sauf pour le dernier message)
+          // Délai anti-ban aléatoire entre 20 et 45 secondes (sauf pour le dernier message)
           if (i < targets.length - 1) {
-            final randomDelay = 5 + (10 * (0.5 + 0.5 * (DateTime.now().millisecond / 1000))).toInt();
+            final randomDelay = 20 + Random().nextInt(26);
+            _operationLogs.add("⏳ Pause anti-ban ${randomDelay}s...");
+            setState(() {});
             await Future.delayed(Duration(seconds: randomDelay));
           }
         }
@@ -1986,6 +1991,10 @@ class _SettingsTabState extends State<_SettingsTab> {
   String? _whatsappPairingCode;
   bool _isConnectingWhatsapp = false;
   bool _usePairingCode = false;
+  bool _whatsappTabLoaded = false;
+  int _whatsappPollAttempts = 0;
+  bool _monitorFetchQr = false;
+  String? _pairingPhoneUsed;
   Timer? _whatsappStatusTimer;
   Map<String, dynamic>? _queueStatus;
 
@@ -2004,11 +2013,116 @@ class _SettingsTabState extends State<_SettingsTab> {
     super.dispose();
   }
 
-  // Générer un code d'appairage pour le même téléphone
-  Future<void> _generatePairingCode(String enterpriseId) async {
-    if (_whatsappPhoneNumberController.text.isEmpty) {
+  void _applyConnectionInfo(Map<String, dynamic> info) {
+    final status = info['status'] as String? ?? 'disconnected';
+    final qr = info['qrCode'] as String?;
+
+    if (status == 'connected') {
+      _whatsappStatus = 'connected';
+      _whatsappQrCode = null;
+    } else if (qr != null && qr.isNotEmpty) {
+      _whatsappStatus = 'qr_ready';
+      _whatsappQrCode = qr;
+    } else if (status == 'connecting' || status == 'close') {
+      _whatsappStatus = 'instance_exists';
+      _whatsappQrCode = null;
+    } else {
+      _whatsappStatus = status == 'disconnected' ? null : status;
+      _whatsappQrCode = null;
+    }
+  }
+
+  Uint8List _decodeQrImage(String raw) {
+    final base64Str = raw.contains(',') ? raw.split(',').last : raw;
+    return Uint8List.fromList(base64Decode(base64Str));
+  }
+
+  Future<void> _loadWhatsAppState(String enterpriseId) async {
+    try {
+      final exists = await WhatsAppService.instanceExists(enterpriseId);
+      if (!mounted) return;
+
+      if (!exists) {
+        setState(() {
+          _whatsappStatus = null;
+          _whatsappQrCode = null;
+          _whatsappPairingCode = null;
+        });
+        return;
+      }
+
+      final info = await WhatsAppService.getInstanceStatus(enterpriseId);
+      if (!mounted) return;
+      setState(() => _applyConnectionInfo(info));
+    } catch (_) {
+      if (mounted) setState(() => _whatsappStatus = null);
+    }
+  }
+
+  String? _validateWhatsAppPhone(String input) {
+    final clean = input.replaceAll(RegExp(r'[^0-9]'), '');
+    if (clean.isEmpty) return 'Veuillez entrer votre numéro WhatsApp';
+    if (!clean.startsWith('229')) {
+      return 'Le numéro doit commencer par 229 (ex: 2290157543682)';
+    }
+    if (clean.length < 12 || clean.length > 13) {
+      return 'Numéro invalide. Format: 229XXXXXXXX';
+    }
+    return null;
+  }
+
+  Future<void> _resetWhatsAppInstance(String enterpriseId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Réinitialiser WhatsApp ?'),
+        content: const Text(
+          'Cela supprime la connexion WhatsApp en cours.\n'
+          'L\'opération peut prendre jusqu\'à 1 minute.\n'
+          'Vous pourrez ensuite vous reconnecter (QR ou code).',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    _whatsappStatusTimer?.cancel();
+    setState(() {
+      _isConnectingWhatsapp = true;
+      _whatsappQrCode = null;
+      _whatsappPairingCode = null;
+    });
+
+    try {
+      await WhatsAppService.deleteInstance(enterpriseId);
+      if (!mounted) return;
+      setState(() => _whatsappStatus = null);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Veuillez entrer votre numéro WhatsApp")),
+        const SnackBar(content: Text('Connexion réinitialisée. Vous pouvez vous reconnecter.'), backgroundColor: Colors.green),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur suppression: $e'), backgroundColor: AppTheme.errorColor),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isConnectingWhatsapp = false);
+    }
+  }
+
+  Future<void> _generatePairingCode(String enterpriseId) async {
+    final phoneError = _validateWhatsAppPhone(_whatsappPhoneNumberController.text);
+    if (phoneError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(phoneError), backgroundColor: AppTheme.errorColor),
       );
       return;
     }
@@ -2019,23 +2133,24 @@ class _SettingsTabState extends State<_SettingsTab> {
     });
 
     try {
-      // 1. Créer l'instance d'abord (nécessaire pour Evolution API)
-      await WhatsAppService.connectInstance(enterpriseId);
-      
-      // 2. Demander le code d'appairage
-      final code = await WhatsAppService.getPairingCode(enterpriseId, _whatsappPhoneNumberController.text);
-      
+      final phone = _whatsappPhoneNumberController.text;
+      final code = await WhatsAppService.requestPairingCode(enterpriseId, phone);
+
       setState(() {
         _whatsappPairingCode = code;
+        _pairingPhoneUsed = phone;
         _whatsappStatus = 'pairing_ready';
       });
 
-      // 3. Surveiller la connexion
-      _startStatusMonitoring(enterpriseId);
+      _startStatusMonitoring(enterpriseId, fetchQr: false);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Erreur Pairing Code: $e"), backgroundColor: AppTheme.errorColor),
+          SnackBar(
+            content: Text(e.toString().replaceAll('Exception: ', '')),
+            backgroundColor: AppTheme.errorColor,
+            duration: const Duration(seconds: 5),
+          ),
         );
       }
     } finally {
@@ -2045,25 +2160,133 @@ class _SettingsTabState extends State<_SettingsTab> {
     }
   }
 
-  void _startStatusMonitoring(String enterpriseId) {
-    _whatsappStatusTimer?.cancel();
-    _whatsappStatusTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
-      final statusResult = await WhatsAppService.getInstanceStatus(enterpriseId);
-      if (mounted) {
-        setState(() {
-          _whatsappStatus = statusResult['status'];
-        });
-      }
+  Future<void> _resendPairingNotification(String enterpriseId) async {
+    final phone = _pairingPhoneUsed ?? _whatsappPhoneNumberController.text;
+    final phoneError = _validateWhatsAppPhone(phone);
+    if (phoneError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(phoneError), backgroundColor: AppTheme.errorColor),
+      );
+      return;
+    }
 
-      if (_whatsappStatus == 'connected') {
-        timer.cancel();
-        if (mounted) {
+    setState(() => _isConnectingWhatsapp = true);
+    try {
+      await WhatsAppService.resendPairingNotification(enterpriseId, phone);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Notification renvoyée. Vérifiez WhatsApp sur votre téléphone.'),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Impossible de renvoyer la notification. Ouvrez WhatsApp manuellement.'),
+            backgroundColor: AppTheme.errorColor,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isConnectingWhatsapp = false);
+    }
+  }
+
+  void _startStatusMonitoring(String enterpriseId, {bool fetchQr = false}) {
+    _whatsappStatusTimer?.cancel();
+    _whatsappPollAttempts = 0;
+    _monitorFetchQr = fetchQr;
+
+    _whatsappStatusTimer = Timer.periodic(const Duration(seconds: 15), (timer) async {
+      _whatsappPollAttempts++;
+
+      // Pairing ou QR déjà affiché : vérifier UNIQUEMENT connectionState (pas /connect)
+      if (_whatsappPairingCode != null || (_whatsappQrCode != null && !_monitorFetchQr)) {
+        final info = await WhatsAppService.getInstanceStatus(enterpriseId);
+        if (!mounted) return;
+
+        if (info['status'] == 'connected') {
+          timer.cancel();
+          setState(() {
+            _whatsappStatus = 'connected';
+            _whatsappPairingCode = null;
+            _whatsappQrCode = null;
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("WhatsApp connecté ! ✔️"), backgroundColor: Colors.green),
           );
         }
+        return;
+      }
+
+      // Phase initiale QR : tenter de récupérer le QR (puis passer en mode status-only)
+      if (_monitorFetchQr) {
+        final info = await WhatsAppService.getConnectionInfo(enterpriseId);
+        if (!mounted) return;
+        setState(() => _applyConnectionInfo(info));
+        if (_whatsappQrCode != null) _monitorFetchQr = false;
+
+        if (info['status'] == 'connected') {
+          timer.cancel();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("WhatsApp connecté ! ✔️"), backgroundColor: Colors.green),
+          );
+        } else if (_whatsappPollAttempts >= 8 && _whatsappQrCode == null) {
+          timer.cancel();
+          if (mounted) setState(() => _whatsappStatus = 'qr_unavailable');
+        }
+        return;
+      }
+
+      // Fallback : statut seul
+      final info = await WhatsAppService.getInstanceStatus(enterpriseId);
+      if (!mounted) return;
+      if (info['status'] == 'connected') {
+        timer.cancel();
+        setState(() {
+          _whatsappStatus = 'connected';
+          _whatsappPairingCode = null;
+          _whatsappQrCode = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("WhatsApp connecté ! ✔️"), backgroundColor: Colors.green),
+        );
       }
     });
+  }
+
+  Future<void> _copyPairingCode() async {
+    if (_whatsappPairingCode == null) return;
+    await Clipboard.setData(ClipboardData(text: _whatsappPairingCode!));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Code copié ! Collez-le dans WhatsApp.'), duration: Duration(seconds: 2)),
+      );
+    }
+  }
+
+  Future<void> _openWhatsAppApp() async {
+    final candidates = [
+      Uri.parse('whatsapp://send'),
+      Uri.parse('https://wa.me/'),
+    ];
+    for (final uri in candidates) {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ouvrez WhatsApp manuellement : Appareils connectés > Lier avec le numéro.'),
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   // Initialiser la connexion WhatsApp avec Evolution API (QR Code)
@@ -2071,19 +2294,15 @@ class _SettingsTabState extends State<_SettingsTab> {
     setState(() {
       _isConnectingWhatsapp = true;
       _whatsappPairingCode = null;
+      _whatsappQrCode = null;
+      _whatsappStatus = 'connecting';
     });
 
     try {
-      // Créer l'instance et récupérer le QR Code
-      final result = await WhatsAppService.connectInstance(enterpriseId);
-      
-      setState(() {
-        _whatsappQrCode = result['qrCode'];
-        _whatsappStatus = 'qr_ready';
-      });
-
-      // Vérifier le statut périodiquement
-      _startStatusMonitoring(enterpriseId);
+      final result = await WhatsAppService.connectInstance(enterpriseId, forceRecreate: true);
+      if (!mounted) return;
+      setState(() => _applyConnectionInfo(result));
+      _startStatusMonitoring(enterpriseId, fetchQr: true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2099,13 +2318,8 @@ class _SettingsTabState extends State<_SettingsTab> {
 
   // Rafraîchir le statut WhatsApp
   Future<void> _refreshWhatsAppStatus(String enterpriseId) async {
-    final statusResult = await WhatsAppService.getInstanceStatus(enterpriseId);
-    setState(() {
-      _whatsappStatus = statusResult['status'];
-      if (statusResult['qrCode'] != null && statusResult['status'] != 'connected') {
-        _whatsappQrCode = statusResult['qrCode'];
-      }
-    });
+    final info = await WhatsAppService.getConnectionInfo(enterpriseId);
+    setState(() => _applyConnectionInfo(info));
   }
 
   // Déconnexion WhatsApp
@@ -2136,6 +2350,11 @@ class _SettingsTabState extends State<_SettingsTab> {
 
     if (ent == null) {
       return const Center(child: Text("Erreur de chargement de l'entreprise."));
+    }
+
+    if (_activeSettingIndex == 5 && !_whatsappTabLoaded) {
+      _whatsappTabLoaded = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadWhatsAppState(ent.id));
     }
 
     return SingleChildScrollView(
@@ -2532,17 +2751,76 @@ class _SettingsTabState extends State<_SettingsTab> {
                                 border: Border.all(color: Colors.grey.shade300),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: _whatsappQrCode != null && _whatsappQrCode!.isNotEmpty 
-                            ? Image.memory(
-                                base64Decode(_whatsappQrCode!),
-                                width: 180,
-                                height: 180,
+                              child: Image.memory(
+                                _decodeQrImage(_whatsappQrCode!),
+                                width: 220,
+                                height: 220,
+                                fit: BoxFit.contain,
                                 errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
-                              )
-                            : const Padding(
-                                padding: EdgeInsets.all(20.0),
-                                child: CircularProgressIndicator(),
                               ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            "WhatsApp > Appareils connectés > Connecter un appareil",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 11, color: AppTheme.textLight),
+                          ),
+                        ] else if (_whatsappStatus == 'instance_exists') ...[
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.blue.shade100),
+                            ),
+                            child: const Text(
+                              "Une connexion précédente a été détectée.\n"
+                              "Cliquez sur « Afficher le QR Code » pour continuer,\n"
+                              "ou « Réinitialiser » pour repartir de zéro.",
+                              style: TextStyle(fontSize: 12, height: 1.4),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            onPressed: _isConnectingWhatsapp ? null : () => _connectWhatsApp(ent.id),
+                            icon: const Icon(Icons.qr_code_scanner),
+                            label: const Text("Afficher le QR Code"),
+                          ),
+                        ] else if (_whatsappStatus == 'qr_unavailable') ...[
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.orange.shade200),
+                            ),
+                            child: const Text(
+                              "Le QR code n'a pas pu être généré.\n"
+                              "Réessayez ou utilisez le code de couplage.",
+                              style: TextStyle(fontSize: 12, height: 1.4),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            onPressed: _isConnectingWhatsapp ? null : () => _connectWhatsApp(ent.id),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text("Réessayer"),
+                          ),
+                        ] else if (_isConnectingWhatsapp || _whatsappStatus == 'connecting') ...[
+                          const Center(
+                            child: Column(
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 12),
+                                Text("Génération du QR code...", style: TextStyle(fontSize: 13)),
+                                SizedBox(height: 4),
+                                Text(
+                                  "Veuillez patienter quelques instants.",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 11, color: AppTheme.textLight),
+                                ),
+                              ],
                             ),
                           ),
                         ] else
@@ -2554,7 +2832,10 @@ class _SettingsTabState extends State<_SettingsTab> {
                       ] else ...[
                         const Text("Méthode : Code de couplage", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
-                        const Text("(Idéal si vous utilisez un seul téléphone)", style: TextStyle(fontSize: 11, color: AppTheme.textLight)),
+                        const Text(
+                          "Entrez votre numéro avec l'indicatif 229, sans + ni espaces.",
+                          style: TextStyle(fontSize: 11, color: AppTheme.textLight),
+                        ),
                         const SizedBox(height: 16),
                         
                         if (_whatsappPairingCode == null) ...[
@@ -2562,8 +2843,9 @@ class _SettingsTabState extends State<_SettingsTab> {
                             controller: _whatsappPhoneNumberController,
                             decoration: const InputDecoration(
                               labelText: "Votre numéro WhatsApp",
-                              hintText: "Ex: 229XXXXXXXX",
+                              hintText: "2290157543682",
                               prefixIcon: Icon(Icons.phone),
+                              helperText: "Obligatoire : commence par 229",
                             ),
                             keyboardType: TextInputType.phone,
                           ),
@@ -2581,35 +2863,55 @@ class _SettingsTabState extends State<_SettingsTab> {
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(color: Colors.grey.shade300),
                             ),
-                            child: Column(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                const Text("Votre code d'appairage :", style: TextStyle(fontSize: 12)),
-                                const SizedBox(height: 8),
-                                Text(
-                                  _whatsappPairingCode!,
-                                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 4, color: AppTheme.primaryColor),
+                                Flexible(
+                                  child: Text(
+                                    _whatsappPairingCode!,
+                                    style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 4,
+                                      color: AppTheme.primaryColor,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Copier le code',
+                                  icon: const Icon(Icons.copy, color: AppTheme.primaryColor),
+                                  onPressed: _copyPairingCode,
                                 ),
                               ],
                             ),
                           ),
                           const SizedBox(height: 16),
                           const Text(
-                            "Instructions :\n1. Copiez le code ci-dessus\n2. Ouvrez WhatsApp > Appareils connectés\n3. Cliquez sur 'Connecter un appareil'\n4. Choisissez 'Lier avec le numéro de téléphone'\n5. Saisissez ce code",
+                            "Instructions :\n"
+                            "1. Copiez le code ci-dessus\n"
+                            "2. Ouvrez WhatsApp > Appareils connectés\n"
+                            "3. Connecter un appareil > Lier avec le numéro\n"
+                            "4. Saisissez le code\n\n"
+                            "Si WhatsApp ne vous notifie pas, appuyez sur « Renvoyer la notification ».",
                             style: TextStyle(fontSize: 11, height: 1.4),
                           ),
                           const SizedBox(height: 16),
                           ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF25D366)),
-                            onPressed: () async {
-                              final url = Uri.parse("whatsapp://");
-                              if (await canLaunchUrl(url)) {
-                                await launchUrl(url);
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text("Impossible d'ouvrir WhatsApp automatiquement")),
-                                );
-                              }
-                            },
+                            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryColor),
+                            onPressed: _copyPairingCode,
+                            icon: const Icon(Icons.copy),
+                            label: const Text("Copier le code"),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: _isConnectingWhatsapp ? null : () => _resendPairingNotification(ent.id),
+                            icon: const Icon(Icons.notifications_active_outlined),
+                            label: const Text("Renvoyer la notification"),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: _openWhatsAppApp,
                             icon: const Icon(Icons.open_in_new),
                             label: const Text("Ouvrir WhatsApp"),
                           ),
@@ -2629,6 +2931,16 @@ class _SettingsTabState extends State<_SettingsTab> {
                         icon: const Icon(Icons.logout),
                         onPressed: () => _disconnectWhatsApp(ent.id),
                         label: const Text("Déconnecter WhatsApp"),
+                      ),
+                    ],
+
+                    if (_whatsappStatus != null && _whatsappStatus != 'connected') ...[
+                      const SizedBox(height: 16),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(foregroundColor: Colors.red.shade700),
+                        onPressed: _isConnectingWhatsapp ? null : () => _resetWhatsAppInstance(ent.id),
+                        icon: const Icon(Icons.delete_outline),
+                        label: const Text('Réinitialiser la connexion'),
                       ),
                     ],
                   ],
@@ -2740,8 +3052,12 @@ class _SettingsTabState extends State<_SettingsTab> {
         return 'QR Code prêt à scanner';
       case 'pairing_ready':
         return 'Code de couplage généré';
+      case 'instance_exists':
+        return 'Instance créée — en attente de connexion';
       case 'connecting':
-        return 'Connexion en cours...';
+        return 'Génération du QR code...';
+      case 'qr_unavailable':
+        return 'QR code indisponible';
       case 'error':
         return 'Erreur de connexion au service';
       case 'disconnected':
