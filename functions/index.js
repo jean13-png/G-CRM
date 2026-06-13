@@ -35,7 +35,7 @@ exports.processWhatsAppQueue = functions.firestore
         {
           headers: {
             "Content-Type": "application/json",
-            apikey: EVOLUTION_API_KEY,
+            apikey: EVOLUTION_API_KEY.trim(),
           },
         }
       );
@@ -62,7 +62,11 @@ exports.pingEvolutionApi = functions.pubsub
   .schedule("every 5 minutes")
   .onRun(async () => {
     try {
-      await axios.get(`${EVOLUTION_API_URL}/`, {
+      // Un ping plus utile qui vérifie l'auth sur un endpoint léger
+      await axios.get(`${EVOLUTION_API_URL}/instance/fetchInstances`, {
+        headers: {
+          apikey: EVOLUTION_API_KEY.trim(),
+        },
         timeout: 5000,
       });
       functions.logger.log("✅ Ping Evolution API réussi !");

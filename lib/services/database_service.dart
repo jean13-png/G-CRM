@@ -49,6 +49,43 @@ class DatabaseService extends ChangeNotifier {
   StreamSubscription? _notificationsSubscription;
   StreamSubscription? _enterpriseSubscription;
 
+  // State for Global Communication Process
+  bool _isCommOperationRunning = false;
+  int _commProgressCurrent = 0;
+  int _commProgressTotal = 0;
+  String _commOperationLabel = '';
+  List<String> _commOperationLogs = [];
+
+  bool get isCommOperationRunning => _isCommOperationRunning;
+  int get commProgressCurrent => _commProgressCurrent;
+  int get commProgressTotal => _commProgressTotal;
+  String get commOperationLabel => _commOperationLabel;
+  List<String> get commOperationLogs => _commOperationLogs;
+
+  void updateCommOperation({
+    required bool isRunning,
+    int? current,
+    int? total,
+    String? label,
+    String? log,
+    bool reset = false,
+  }) {
+    if (reset) {
+      _isCommOperationRunning = false;
+      _commProgressCurrent = 0;
+      _commProgressTotal = 0;
+      _commOperationLabel = '';
+      _commOperationLogs = [];
+    } else {
+      _isCommOperationRunning = isRunning;
+      if (current != null) _commProgressCurrent = current;
+      if (total != null) _commProgressTotal = total;
+      if (label != null) _commOperationLabel = label;
+      if (log != null) _commOperationLogs.add(log);
+    }
+    notifyListeners();
+  }
+
   // Getters
   Enterprise? get currentEnterprise => _currentEnterprise;
   Agent? get currentAgent => _currentAgent;

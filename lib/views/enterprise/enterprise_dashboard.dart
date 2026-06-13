@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/database_service.dart';
@@ -15,6 +16,7 @@ import '../agent/prospect_detail_screen.dart';
 import '../../app_config.dart';
 import '../../services/whatsapp_service.dart';
 import '../../services/sms_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:intl/intl.dart';
 
@@ -138,7 +140,21 @@ class _EnterpriseDashboardState extends State<EnterpriseDashboard> {
         ],
       ),
       body: db.isInitialized 
-          ? children[_currentIndex] 
+          ? Stack(
+              children: [
+                Padding(
+                  padding: EdgeInsets.only(bottom: db.isCommOperationRunning ? 70 : 0),
+                  child: children[_currentIndex],
+                ),
+                if (db.isCommOperationRunning)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: _GlobalCommProgressBar(db: db),
+                  ),
+              ],
+            )
           : const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor)),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
@@ -180,6 +196,69 @@ class _EnterpriseDashboardState extends State<EnterpriseDashboard> {
             icon: Icon(Icons.settings_outlined),
             activeIcon: Icon(Icons.settings),
             label: 'Paramètres',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GlobalCommProgressBar extends StatelessWidget {
+  final DatabaseService db;
+  const _GlobalCommProgressBar({required this.db});
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = db.commProgressTotal > 0 ? db.commProgressCurrent / db.commProgressTotal : 0.0;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      db.commOperationLabel,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                    Text(
+                      "${db.commProgressCurrent}/${db.commProgressTotal} traité(s)",
+                      style: const TextStyle(fontSize: 10, color: AppTheme.textLight),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                "${(progress * 100).toInt()}%",
+                style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LinearProgressIndicator(
+            value: progress,
+            backgroundColor: Colors.grey.shade200,
+            valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
           ),
         ],
       ),
@@ -796,6 +875,7 @@ class _AgentsTabState extends State<_AgentsTab> {
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
+                    onTap: () => _showAgentProspectsDialog(context, agent),
                     leading: const CircleAvatar(
                       backgroundColor: AppTheme.secondaryColor,
                       foregroundColor: Colors.white,
@@ -803,13 +883,198 @@ class _AgentsTabState extends State<_AgentsTab> {
                     ),
                     title: Text(agent.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                     subtitle: Text(agent.email),
-                    trailing: const Icon(Icons.chevron_right, color: AppTheme.textLight),
+                    trailing: PopupMenuButton<String>(
+                      onSelected: (val) {
+                        if (val == 'edit') _showEditAgentDialog(context, agent);
+                        if (val == 'delete') _showDeleteAgentDialog(context, agent);
+                        if (val == 'assign') _showAssignToAgentDialog(context, agent);
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'edit',
+                          child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text("Modifier")]),
+                        ),
+                        const PopupMenuItem(
+                          value: 'assign',
+                          child: Row(children: [Icon(Icons.person_add, size: 18), SizedBox(width: 8), Text("Attribuer des prospects")]),
+                        ),
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete, size: 18, color: AppTheme.errorColor),
+                              SizedBox(width: 8),
+                              Text("Supprimer", style: TextStyle(color: AppTheme.errorColor)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
             ),
         ],
       ),
+    );
+  }
+
+  void _showEditAgentDialog(BuildContext context, Agent agent) {
+    final nameController = TextEditingController(text: agent.name);
+    final emailController = TextEditingController(text: agent.email);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Modifier l'agent"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameController, decoration: const InputDecoration(labelText: "Nom")),
+            TextField(controller: emailController, decoration: const InputDecoration(labelText: "Email")),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
+          ElevatedButton(
+            onPressed: () async {
+              await Provider.of<DatabaseService>(context, listen: false)
+                  .updateAgent(agent.id, nameController.text, emailController.text);
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text("Sauvegarder"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteAgentDialog(BuildContext context, Agent agent) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Supprimer l'agent"),
+        content: Text("Voulez-vous vraiment supprimer ${agent.name} ? Cette action est irréversible."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.errorColor),
+            onPressed: () async {
+              await Provider.of<DatabaseService>(context, listen: false).deleteAgent(agent.id);
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text("Supprimer", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAgentProspectsDialog(BuildContext context, Agent agent) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final db = Provider.of<DatabaseService>(context);
+        final agentProspects = db.allProspects.where((p) => p.agentId == agent.id).toList();
+
+        return AlertDialog(
+          title: Text("Prospects de ${agent.name}"),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: agentProspects.isEmpty
+                ? const Text("Aucun prospect géré.")
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: agentProspects.length,
+                    itemBuilder: (context, index) {
+                      final p = agentProspects[index];
+                      return ListTile(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ProspectDetailScreen(prospectId: p.id),
+                            ),
+                          );
+                        },
+                        title: Text(p.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                        subtitle: Text("Statut: ${p.status}", style: const TextStyle(fontSize: 12)),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.person_remove, color: AppTheme.errorColor, size: 20),
+                          tooltip: "Retirer de cet agent",
+                          onPressed: () async {
+                            await db.unassignProspect(p.id);
+                          },
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Fermer")),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showAssignToAgentDialog(BuildContext context, Agent agent) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final db = Provider.of<DatabaseService>(context);
+        final unassignedProspects = db.allProspects.where((p) => p.agentId == null || p.agentId!.isEmpty).toList();
+        final Set<String> selectedIds = {};
+
+        return StatefulBuilder(
+          builder: (context, setState) => AlertDialog(
+            title: Text("Attribuer à ${agent.name}"),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: unassignedProspects.isEmpty
+                  ? const Text("Aucun prospect libre à attribuer.")
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text("Sélectionnez les prospects à confier à cet agent :", style: TextStyle(fontSize: 12, color: AppTheme.textLight)),
+                        const SizedBox(height: 8),
+                        Flexible(
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: unassignedProspects.length,
+                            itemBuilder: (context, index) {
+                              final p = unassignedProspects[index];
+                              final isSelected = selectedIds.contains(p.id);
+                              return CheckboxListTile(
+                                value: isSelected,
+                                title: Text(p.name, style: const TextStyle(fontSize: 14)),
+                                subtitle: Text(p.data['telephone'] ?? '', style: const TextStyle(fontSize: 11)),
+                                onChanged: (val) {
+                                  setState(() {
+                                    if (val == true) selectedIds.add(p.id);
+                                    else selectedIds.remove(p.id);
+                                  });
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
+              ElevatedButton(
+                onPressed: selectedIds.isEmpty ? null : () async {
+                  await db.assignProspectsToAgent(agent.id, selectedIds.toList());
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: const Text("Attribuer"),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -1191,6 +1456,15 @@ class _CommunicationTabState extends State<_CommunicationTab> {
       _operationLogs.add("Démarrage de l'opération : ${_getServiceLabel(_selectedService!)}");
     });
 
+    // Mettre à jour l'état global dans DatabaseService
+    db.updateCommOperation(
+      isRunning: true,
+      total: targets.length,
+      current: 0,
+      label: _getServiceLabel(_selectedService!),
+      log: "Démarrage de l'opération : ${_getServiceLabel(_selectedService!)}",
+    );
+
     // Cas spécial pour WhatsApp : envoi direct avec délai anti-ban
     if (_selectedService == _CommService.whatsapp) {
       final enterpriseId = db.currentEnterprise?.id;
@@ -1213,17 +1487,24 @@ class _CommunicationTabState extends State<_CommunicationTab> {
             debugPrint("Erreur envoi WhatsApp: $e");
           }
 
-          // Mettre à jour la progression
+          // Mettre à jour la progression locale et globale
+          final logMessage = success ? "✅ Succès: $name" : "❌ Échec: $name";
+          
           setState(() {
             _progressCurrent = i + 1;
             if (success) {
               _progressSuccess++;
-              _operationLogs.add("✅ Succès: $name");
             } else {
               _progressFail++;
-              _operationLogs.add("❌ Échec: $name");
             }
+            _operationLogs.add(logMessage);
           });
+
+          db.updateCommOperation(
+            isRunning: true,
+            current: i + 1,
+            log: logMessage,
+          );
 
           // Délai anti-ban aléatoire entre 5 et 15 secondes (sauf pour le dernier message)
           if (i < targets.length - 1) {
@@ -1235,6 +1516,7 @@ class _CommunicationTabState extends State<_CommunicationTab> {
         setState(() {
           _isOperationRunning = false;
         });
+        db.updateCommOperation(isRunning: false);
       }
       return;
     }
@@ -1270,16 +1552,23 @@ class _CommunicationTabState extends State<_CommunicationTab> {
         success = false;
       }
 
+      final logMessage = success ? "✅ Succès : $name" : "❌ Échec : $name";
+
       setState(() {
         _progressCurrent = i + 1;
         if (success) {
           _progressSuccess++;
-          _operationLogs.add("✅ Succès : $name");
         } else {
           _progressFail++;
-          _operationLogs.add("❌ Échec : $name");
         }
+        _operationLogs.add(logMessage);
       });
+
+      db.updateCommOperation(
+        isRunning: true,
+        current: i + 1,
+        log: logMessage,
+      );
       
       // Petit délai entre les opérations pour éviter les limites de taux
       await Future.delayed(const Duration(milliseconds: 500));
@@ -1289,6 +1578,7 @@ class _CommunicationTabState extends State<_CommunicationTab> {
       _isOperationRunning = false;
       _operationLogs.add("Opération terminée.");
     });
+    db.updateCommOperation(isRunning: false, log: "Opération terminée.");
   }
 
   String _getServiceLabel(_CommService service) {
@@ -1332,10 +1622,36 @@ class _CommunicationTabState extends State<_CommunicationTab> {
 
   Widget _buildServiceCard(_CommService service, IconData icon, Color color, String desc) {
     return InkWell(
-      onTap: () => setState(() {
-        _selectedService = service;
-        _currentView = _CommView.prospectSelection;
-      }),
+      onTap: () async {
+        final db = Provider.of<DatabaseService>(context, listen: false);
+        
+        // Vérification spéciale pour WhatsApp
+        if (service == _CommService.whatsapp) {
+          final enterpriseId = db.currentEnterprise?.id;
+          if (enterpriseId != null) {
+            final statusResult = await WhatsAppService.getInstanceStatus(enterpriseId);
+            if (statusResult['status'] != 'connected') {
+              // Redirection vers les paramètres si non connecté
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text("Veuillez connecter votre WhatsApp dans les paramètres d'abord."),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+                // On peut imaginer une logique ici pour forcer l'onglet paramètres, 
+                // mais pour l'instant on informe l'utilisateur.
+              }
+              return;
+            }
+          }
+        }
+
+        setState(() {
+          _selectedService = service;
+          _currentView = _CommView.prospectSelection;
+        });
+      },
       child: Card(
         elevation: 4,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -1660,13 +1976,16 @@ class _SettingsTabState extends State<_SettingsTab> {
   final _templateContentController = TextEditingController();
   final _africaTalkingApiKeyController = TextEditingController();
   final _africaTalkingUsernameController = TextEditingController();
+  final _whatsappPhoneNumberController = TextEditingController();
   final _brevoFormKey = GlobalKey<FormState>();
   bool _testingEmail = false;
   
   // WhatsApp State
   String? _whatsappStatus;
   String? _whatsappQrCode;
+  String? _whatsappPairingCode;
   bool _isConnectingWhatsapp = false;
+  bool _usePairingCode = false;
   Timer? _whatsappStatusTimer;
   Map<String, dynamic>? _queueStatus;
 
@@ -1680,14 +1999,78 @@ class _SettingsTabState extends State<_SettingsTab> {
     _templateContentController.dispose();
     _africaTalkingApiKeyController.dispose();
     _africaTalkingUsernameController.dispose();
+    _whatsappPhoneNumberController.dispose();
     _whatsappStatusTimer?.cancel();
     super.dispose();
   }
 
-  // Initialiser la connexion WhatsApp avec Evolution API
+  // Générer un code d'appairage pour le même téléphone
+  Future<void> _generatePairingCode(String enterpriseId) async {
+    if (_whatsappPhoneNumberController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Veuillez entrer votre numéro WhatsApp")),
+      );
+      return;
+    }
+
+    setState(() {
+      _isConnectingWhatsapp = true;
+      _whatsappPairingCode = null;
+    });
+
+    try {
+      // 1. Créer l'instance d'abord (nécessaire pour Evolution API)
+      await WhatsAppService.connectInstance(enterpriseId);
+      
+      // 2. Demander le code d'appairage
+      final code = await WhatsAppService.getPairingCode(enterpriseId, _whatsappPhoneNumberController.text);
+      
+      setState(() {
+        _whatsappPairingCode = code;
+        _whatsappStatus = 'pairing_ready';
+      });
+
+      // 3. Surveiller la connexion
+      _startStatusMonitoring(enterpriseId);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erreur Pairing Code: $e"), backgroundColor: AppTheme.errorColor),
+        );
+      }
+    } finally {
+      setState(() {
+        _isConnectingWhatsapp = false;
+      });
+    }
+  }
+
+  void _startStatusMonitoring(String enterpriseId) {
+    _whatsappStatusTimer?.cancel();
+    _whatsappStatusTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      final statusResult = await WhatsAppService.getInstanceStatus(enterpriseId);
+      if (mounted) {
+        setState(() {
+          _whatsappStatus = statusResult['status'];
+        });
+      }
+
+      if (_whatsappStatus == 'connected') {
+        timer.cancel();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("WhatsApp connecté ! ✔️"), backgroundColor: Colors.green),
+          );
+        }
+      }
+    });
+  }
+
+  // Initialiser la connexion WhatsApp avec Evolution API (QR Code)
   Future<void> _connectWhatsApp(String enterpriseId) async {
     setState(() {
       _isConnectingWhatsapp = true;
+      _whatsappPairingCode = null;
     });
 
     try {
@@ -1700,24 +2083,7 @@ class _SettingsTabState extends State<_SettingsTab> {
       });
 
       // Vérifier le statut périodiquement
-      _whatsappStatusTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-        final statusResult = await WhatsAppService.getInstanceStatus(enterpriseId);
-        setState(() {
-          _whatsappStatus = statusResult['status'];
-          if (statusResult['qrCode'] != null && statusResult['status'] != 'connected') {
-            _whatsappQrCode = statusResult['qrCode'];
-          }
-        });
-
-        if (_whatsappStatus == 'connected') {
-          timer.cancel();
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("WhatsApp connecté ! ✔️"), backgroundColor: Colors.green),
-            );
-          }
-        }
-      });
+      _startStatusMonitoring(enterpriseId);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2084,10 +2450,42 @@ class _SettingsTabState extends State<_SettingsTab> {
             ),
             const SizedBox(height: 8),
             const Text(
-              "1. Cliquez sur \"Connecter WhatsApp\"\n2. Scannez le QR Code avec votre téléphone\n3. C'est prêt !",
+              "Connectez votre numéro WhatsApp pour envoyer des messages groupés.",
               style: TextStyle(color: AppTheme.textLight, fontSize: 12),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
+            
+            // Mode Selection (QR vs Pairing)
+            if (_whatsappStatus != 'connected')
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: !_usePairingCode ? AppTheme.primaryColor.withOpacity(0.1) : null,
+                        side: BorderSide(color: !_usePairingCode ? AppTheme.primaryColor : Colors.grey.shade300),
+                      ),
+                      onPressed: () => setState(() => _usePairingCode = false),
+                      icon: const Icon(Icons.qr_code_2),
+                      label: const Text("QR Code"),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: _usePairingCode ? AppTheme.primaryColor.withOpacity(0.1) : null,
+                        side: BorderSide(color: _usePairingCode ? AppTheme.primaryColor : Colors.grey.shade300),
+                      ),
+                      onPressed: () => setState(() => _usePairingCode = true),
+                      icon: const Icon(Icons.phone_android),
+                      label: const Text("Code couplage"),
+                    ),
+                  ),
+                ],
+              ),
+            
+            const SizedBox(height: 20),
             
             // Status Card
             Card(
@@ -2109,7 +2507,7 @@ class _SettingsTabState extends State<_SettingsTab> {
                                 _getWhatsAppStatusText(),
                                 style: TextStyle(
                                   color: _whatsappStatus == 'connected' ? Colors.green : 
-                                         _whatsappStatus == 'qr_ready' ? Colors.orange : Colors.grey,
+                                         (_whatsappStatus == 'qr_ready' || _whatsappStatus == 'pairing_ready') ? Colors.orange : Colors.grey,
                                   fontSize: 13,
                                 ),
                               ),
@@ -2118,42 +2516,119 @@ class _SettingsTabState extends State<_SettingsTab> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 20),
                     
-                    // QR Code
-                    if (_whatsappQrCode != null && _whatsappStatus != 'connected') ...[
-                      const Text("Scannez le QR Code", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
-                      Center(
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey.shade300),
-                            borderRadius: BorderRadius.circular(12),
+                    if (_whatsappStatus != 'connected') ...[
+                      const Divider(height: 32),
+                      if (!_usePairingCode) ...[
+                        const Text("Méthode : Scanner le QR Code", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        const Text("(Nécessite un deuxième appareil pour scanner)", style: TextStyle(fontSize: 11, color: AppTheme.textLight)),
+                        const SizedBox(height: 16),
+                        if (_whatsappQrCode != null) ...[
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey.shade300),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: _whatsappQrCode != null && _whatsappQrCode!.isNotEmpty 
+                            ? Image.memory(
+                                base64Decode(_whatsappQrCode!),
+                                width: 180,
+                                height: 180,
+                                errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
+                              )
+                            : const Padding(
+                                padding: EdgeInsets.all(20.0),
+                                child: CircularProgressIndicator(),
+                              ),
+                            ),
                           ),
-                          child: Image.memory(
-                            Uri.parse('data:image/png;base64,$_whatsappQrCode').data!.contentAsBytes(),
-                            width: 200,
-                            height: 200,
+                        ] else
+                          ElevatedButton.icon(
+                            onPressed: _isConnectingWhatsapp ? null : () => _connectWhatsApp(ent.id),
+                            icon: _isConnectingWhatsapp ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.qr_code_scanner),
+                            label: Text(_isConnectingWhatsapp ? "Génération..." : "Afficher le QR Code"),
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
+                      ] else ...[
+                        const Text("Méthode : Code de couplage", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        const Text("(Idéal si vous utilisez un seul téléphone)", style: TextStyle(fontSize: 11, color: AppTheme.textLight)),
+                        const SizedBox(height: 16),
+                        
+                        if (_whatsappPairingCode == null) ...[
+                          TextField(
+                            controller: _whatsappPhoneNumberController,
+                            decoration: const InputDecoration(
+                              labelText: "Votre numéro WhatsApp",
+                              hintText: "Ex: 229XXXXXXXX",
+                              prefixIcon: Icon(Icons.phone),
+                            ),
+                            keyboardType: TextInputType.phone,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            onPressed: _isConnectingWhatsapp ? null : () => _generatePairingCode(ent.id),
+                            icon: _isConnectingWhatsapp ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.vpn_key),
+                            label: Text(_isConnectingWhatsapp ? "Génération..." : "Générer le code"),
+                          ),
+                        ] else ...[
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey.shade300),
+                            ),
+                            child: Column(
+                              children: [
+                                const Text("Votre code d'appairage :", style: TextStyle(fontSize: 12)),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _whatsappPairingCode!,
+                                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 4, color: AppTheme.primaryColor),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            "Instructions :\n1. Copiez le code ci-dessus\n2. Ouvrez WhatsApp > Appareils connectés\n3. Cliquez sur 'Connecter un appareil'\n4. Choisissez 'Lier avec le numéro de téléphone'\n5. Saisissez ce code",
+                            style: TextStyle(fontSize: 11, height: 1.4),
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF25D366)),
+                            onPressed: () async {
+                              final url = Uri.parse("whatsapp://");
+                              if (await canLaunchUrl(url)) {
+                                await launchUrl(url);
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text("Impossible d'ouvrir WhatsApp automatiquement")),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.open_in_new),
+                            label: const Text("Ouvrir WhatsApp"),
+                          ),
+                          TextButton(
+                            onPressed: () => setState(() => _whatsappPairingCode = null),
+                            child: const Text("Changer de numéro"),
+                          ),
+                        ],
+                      ],
                     ],
                     
-                    // Actions
+                    // Connected State
                     if (_whatsappStatus == 'connected') ...[
+                      const SizedBox(height: 20),
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade600, foregroundColor: Colors.white),
                         icon: const Icon(Icons.logout),
                         onPressed: () => _disconnectWhatsApp(ent.id),
                         label: const Text("Déconnecter WhatsApp"),
-                      ),
-                    ] else ...[
-                      ElevatedButton.icon(
-                        onPressed: _isConnectingWhatsapp ? null : () => _connectWhatsApp(ent.id),
-                        icon: _isConnectingWhatsapp ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.qr_code_scanner),
-                        label: Text(_isConnectingWhatsapp ? "Connexion en cours..." : "Connecter WhatsApp"),
                       ),
                     ],
                   ],
@@ -2263,6 +2738,8 @@ class _SettingsTabState extends State<_SettingsTab> {
         return 'Connecté ✔️';
       case 'qr_ready':
         return 'QR Code prêt à scanner';
+      case 'pairing_ready':
+        return 'Code de couplage généré';
       case 'connecting':
         return 'Connexion en cours...';
       case 'error':
