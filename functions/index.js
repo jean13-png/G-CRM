@@ -5,8 +5,19 @@ const axios = require("axios");
 admin.initializeApp();
 const db = admin.firestore();
 
-const EVOLUTION_API_URL = "https://evolution-api-latest-62vs.onrender.com";
-const EVOLUTION_API_KEY = "TechPlusKey2026!";
+const runtimeConfig = functions.config ? functions.config() : {};
+const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL ||
+  runtimeConfig?.evolution?.api_url ||
+  "https://evolution-api-latest-62vs.onrender.com";
+const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY ||
+  runtimeConfig?.evolution?.api_key ||
+  "";
+
+function assertEvolutionConfig() {
+  if (!EVOLUTION_API_KEY || !EVOLUTION_API_KEY.trim()) {
+    throw new Error("EVOLUTION_API_KEY manquant (env ou functions config)");
+  }
+}
 
 // Fonction pour traiter la queue WhatsApp (1 instance max = envois séquentiels)
 exports.processWhatsAppQueue = functions
@@ -18,6 +29,7 @@ exports.processWhatsAppQueue = functions
     const messageId = snap.id;
 
     try {
+      assertEvolutionConfig();
       // Attendre si un autre message est déjà en cours (sérialisation)
       const maxWait = 30;
       for (let i = 0; i < maxWait; i++) {
@@ -74,6 +86,7 @@ exports.pingEvolutionApi = functions.pubsub
   .schedule("every 5 minutes")
   .onRun(async () => {
     try {
+      assertEvolutionConfig();
       // Un ping plus utile qui vérifie l'auth sur un endpoint léger
       await axios.get(`${EVOLUTION_API_URL}/instance/fetchInstances`, {
         headers: {

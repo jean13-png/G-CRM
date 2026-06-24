@@ -143,21 +143,7 @@ class _EnterpriseDashboardState extends State<EnterpriseDashboard> {
         ],
       ),
       body: db.isInitialized 
-          ? Stack(
-              children: [
-                Padding(
-                  padding: EdgeInsets.only(bottom: db.isCommOperationRunning ? 70 : 0),
-                  child: children[_currentIndex],
-                ),
-                if (db.isCommOperationRunning)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: _GlobalCommProgressBar(db: db),
-                  ),
-              ],
-            )
+          ? children[_currentIndex]
           : const Center(child: CircularProgressIndicator(color: AppTheme.primaryColor)),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
@@ -1441,23 +1427,25 @@ class _CommunicationTabState extends State<_CommunicationTab> {
     if (targets.isEmpty) return;
     
     if (_selectedService == _CommService.email && _subjectController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sujet requis pour l'email.")));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sujet requis pour l'email.")));
       return;
     }
     if (_messageController.text.isEmpty && _selectedService != _CommService.whatsapp) {
-       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Message requis.")));
+       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Message requis.")));
        return;
     }
 
-    setState(() {
-      _currentView = _CommView.progress;
-      _progressTotal = targets.length;
-      _progressCurrent = 0;
-      _progressSuccess = 0;
-      _progressFail = 0;
-      _isOperationRunning = true;
-      _operationLogs.add("Démarrage de l'opération : ${_getServiceLabel(_selectedService!)}");
-    });
+    if (mounted) {
+      setState(() {
+        _currentView = _CommView.progress;
+        _progressTotal = targets.length;
+        _progressCurrent = 0;
+        _progressSuccess = 0;
+        _progressFail = 0;
+        _isOperationRunning = true;
+        _operationLogs.add("Démarrage de l'opération : ${_getServiceLabel(_selectedService!)}");
+      });
+    }
 
     // Mettre à jour l'état global dans DatabaseService
     db.updateCommOperation(
@@ -1473,35 +1461,46 @@ class _CommunicationTabState extends State<_CommunicationTab> {
       final enterpriseId = db.currentEnterprise?.id;
       if (enterpriseId != null) {
         for (var i = 0; i < targets.length; i++) {
-          if (!_isOperationRunning) break;
+          if (!db.isCommOperationRunning) {
+            _operationLogs.add("🛑 Opération annulée.");
+            if (mounted) setState(() => _isOperationRunning = false);
+            break;
+          }
+          if (!mounted) break;
 
           final p = targets[i];
           final name = "${p.data['prenom'] ?? ''} ${p.data['nom'] ?? ''}";
+          String errorMsg = "";
           bool success = false;
 
           try {
-            // Envoyer via Evolution API
-            success = await WhatsAppService.sendSingleMessage(
+            final result = await WhatsAppService.sendSingleMessage(
               enterpriseId: enterpriseId,
               phone: p.data['telephone'] ?? '',
               message: _messageController.text,
             );
+            success = result['success'] == true;
+            if (!success) {
+              errorMsg = result['error'] ?? "Échec";
+            }
           } catch (e) {
-            debugPrint("Erreur envoi WhatsApp: $e");
+            errorMsg = "Erreur technique";
           }
 
           // Mettre à jour la progression locale et globale
-          final logMessage = success ? "✅ Succès: $name" : "❌ Échec: $name";
+          final logMessage = success ? "✅ Succès: $name" : "❌ $errorMsg: $name";
           
-          setState(() {
-            _progressCurrent = i + 1;
-            if (success) {
-              _progressSuccess++;
-            } else {
-              _progressFail++;
-            }
-            _operationLogs.add(logMessage);
-          });
+          if (mounted) {
+            setState(() {
+              _progressCurrent = i + 1;
+              if (success) {
+                _progressSuccess++;
+              } else {
+                _progressFail++;
+              }
+              _operationLogs.add(logMessage);
+            });
+          }
 
           db.updateCommOperation(
             isRunning: true,
@@ -1509,18 +1508,31 @@ class _CommunicationTabState extends State<_CommunicationTab> {
             log: logMessage,
           );
 
-          // Délai anti-ban aléatoire entre 20 et 45 secondes (sauf pour le dernier message)
-          if (i < targets.length - 1) {
-            final randomDelay = 20 + Random().nextInt(26);
-            _operationLogs.add("⏳ Pause anti-ban ${randomDelay}s...");
-            setState(() {});
-            await Future.delayed(Duration(seconds: randomDelay));
+          // Délai anti-ban aléatoire entre 5 et 15 secondes (sauf pour le dernier message)
+          if (i < targets.length - 1 && db.isCommOperationRunning) {
+            final randomDelay = 5 + Random().nextInt(11);
+            final delayLog = "⏳ Pause anti-ban ${randomDelay}s...";
+            if (mounted) {
+              setState(() {
+                _operationLogs.add(delayLog);
+              });
+            }
+            db.updateCommOperation(isRunning: true, log: delayLog);
+            
+            // Attendre par petits intervalles pour réagir à l'annulation
+            for (int d = 0; d < randomDelay * 10; d++) {
+              if (!db.isCommOperationRunning || !mounted) break;
+              await Future.delayed(const Duration(milliseconds: 100));
+            }
           }
         }
 
-        setState(() {
-          _isOperationRunning = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isOperationRunning = false;
+            if (db.isCommOperationRunning) _operationLogs.add("Opération terminée.");
+          });
+        }
         db.updateCommOperation(isRunning: false);
       }
       return;
@@ -1528,7 +1540,16 @@ class _CommunicationTabState extends State<_CommunicationTab> {
 
     // Traitements normaux pour les autres services
     for (var i = 0; i < targets.length; i++) {
-      if (!_isOperationRunning) break;
+      if (!db.isCommOperationRunning) {
+        if (mounted) {
+          setState(() {
+            _isOperationRunning = false;
+            _operationLogs.add("🛑 Opération annulée.");
+          });
+        }
+        break;
+      }
+      if (!mounted) break;
       
       final p = targets[i];
       final name = "${p.data['prenom'] ?? ''} ${p.data['nom'] ?? ''}";
@@ -1541,13 +1562,13 @@ class _CommunicationTabState extends State<_CommunicationTab> {
               prospectId: p.id, 
               subject: _subjectController.text, 
               content: _messageController.text
-            );
+            ).timeout(const Duration(seconds: 30), onTimeout: () => false);
             break;
           case _CommService.sms:
-            success = await db.sendBulkSms([p], _messageController.text);
+            success = await db.sendBulkSms([p], _messageController.text).timeout(const Duration(seconds: 30), onTimeout: () => false);
             break;
           case _CommService.call:
-            success = await db.initiateAutoCalls([p], _messageController.text);
+            success = await db.initiateAutoCalls([p], _messageController.text).timeout(const Duration(seconds: 30), onTimeout: () => false);
             break;
           case _CommService.whatsapp:
             // Déjà traité ci-dessus
@@ -1559,15 +1580,17 @@ class _CommunicationTabState extends State<_CommunicationTab> {
 
       final logMessage = success ? "✅ Succès : $name" : "❌ Échec : $name";
 
-      setState(() {
-        _progressCurrent = i + 1;
-        if (success) {
-          _progressSuccess++;
-        } else {
-          _progressFail++;
-        }
-        _operationLogs.add(logMessage);
-      });
+      if (mounted) {
+        setState(() {
+          _progressCurrent = i + 1;
+          if (success) {
+            _progressSuccess++;
+          } else {
+            _progressFail++;
+          }
+          _operationLogs.add(logMessage);
+        });
+      }
 
       db.updateCommOperation(
         isRunning: true,
@@ -1575,15 +1598,19 @@ class _CommunicationTabState extends State<_CommunicationTab> {
         log: logMessage,
       );
       
-      // Petit délai entre les opérations pour éviter les limites de taux
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Petit délai entre les opérations
+      if (db.isCommOperationRunning) {
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
     }
 
-    setState(() {
-      _isOperationRunning = false;
-      _operationLogs.add("Opération terminée.");
-    });
-    db.updateCommOperation(isRunning: false, log: "Opération terminée.");
+    if (mounted) {
+      setState(() {
+        _isOperationRunning = false;
+        if (db.isCommOperationRunning) _operationLogs.add("Opération terminée.");
+      });
+    }
+    db.updateCommOperation(isRunning: false);
   }
 
   String _getServiceLabel(_CommService service) {
@@ -1599,6 +1626,23 @@ class _CommunicationTabState extends State<_CommunicationTab> {
   Widget build(BuildContext context) {
     final db = Provider.of<DatabaseService>(context);
     
+    // Si une opération globale est en cours mais qu'on n'est pas sur la vue de progression,
+    // on force l'affichage de la progression si on est dans l'onglet communication.
+    if (db.isCommOperationRunning && _currentView != _CommView.progress) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _currentView = _CommView.progress;
+            _isOperationRunning = true;
+            _progressTotal = db.commProgressTotal;
+            _progressCurrent = db.commProgressCurrent;
+            // On ne peut pas facilement récupérer les logs détaillés ici sans changer plus de code,
+            // mais on synchronise au moins l'état de la vue.
+          });
+        }
+      });
+    }
+
     switch (_currentView) {
       case _CommView.serviceList:
         return _buildServiceList();
@@ -1845,98 +1889,115 @@ class _CommunicationTabState extends State<_CommunicationTab> {
   Widget _buildProgressView() {
     final double percent = _progressTotal > 0 ? _progressCurrent / _progressTotal : 0;
     
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            _isOperationRunning ? "Opération en cours..." : "Opération terminée",
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.secondaryColor),
-          ),
-          const SizedBox(height: 30),
-          
-          // Progress Bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: LinearProgressIndicator(
-              value: percent,
-              minHeight: 20,
-              backgroundColor: Colors.grey.shade200,
-              valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            "${(_progressCurrent)} / $_progressTotal traités (${(percent * 100).toInt()}%)",
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          
-          const SizedBox(height: 40),
-          
-          // Stats Row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildStatItem("Succès", _progressSuccess, Colors.green),
-              _buildStatItem("Échecs", _progressFail, Colors.red),
-              _buildStatItem("Total", _progressTotal, Colors.blue),
-            ],
-          ),
-          
-          const SizedBox(height: 30),
-          const Text("Journal d'activité", style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          
-          // Logs
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: ListView.builder(
-                reverse: true,
-                itemCount: _operationLogs.length,
-                itemBuilder: (context, index) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      _operationLogs[_operationLogs.length - 1 - index],
-                      style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _isOperationRunning ? "Opération en cours..." : "Opération terminée",
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppTheme.secondaryColor),
+                  ),
+                  const SizedBox(height: 30),
+                  
+                  // Progress Bar
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: LinearProgressIndicator(
+                      value: percent,
+                      minHeight: 20,
+                      backgroundColor: Colors.grey.shade200,
+                      valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
                     ),
-                  );
-                },
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    "${(_progressCurrent)} / $_progressTotal traités (${(percent * 100).toInt()}%)",
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  
+                  const SizedBox(height: 30),
+                  
+                  // Stats Row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildStatItem("Succès", _progressSuccess, Colors.green),
+                      _buildStatItem("Échecs", _progressFail, Colors.red),
+                      _buildStatItem("Total", _progressTotal, Colors.blue),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 30),
+                  const Text("Journal d'activité", style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  
+                  // Logs - Fixed height instead of Expanded to avoid overflow issues in tight constraints
+                  Container(
+                    height: 200, // Hauteur fixe pour les logs
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ListView.builder(
+                      reverse: true,
+                      itemCount: _operationLogs.length,
+                      itemBuilder: (context, index) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Text(
+                            _operationLogs[_operationLogs.length - 1 - index],
+                            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  if (!_isOperationRunning)
+                    ElevatedButton(
+                      onPressed: _resetState,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.secondaryColor,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                      ),
+                      child: const Text("RETOUR AU MENU", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    )
+                  else
+                    OutlinedButton(
+                      onPressed: () {
+                        final db = Provider.of<DatabaseService>(context, listen: false);
+                        db.updateCommOperation(isRunning: false);
+                        if (mounted) {
+                          setState(() {
+                            _isOperationRunning = false;
+                            _operationLogs.add("🛑 Demande d'arrêt envoyée...");
+                          });
+                        }
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                      ),
+                      child: const Text("ANNULER L'OPÉRATION", style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                ],
               ),
             ),
           ),
-          
-          const SizedBox(height: 20),
-          
-          if (!_isOperationRunning)
-            ElevatedButton(
-              onPressed: _resetState,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.secondaryColor,
-                padding: const EdgeInsets.symmetric(vertical: 15),
-              ),
-              child: const Text("RETOUR AU MENU", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            )
-          else
-            OutlinedButton(
-              onPressed: () => setState(() => _isOperationRunning = false),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.red,
-                side: const BorderSide(color: Colors.red),
-                padding: const EdgeInsets.symmetric(vertical: 15),
-              ),
-              child: const Text("ARRÊTER L'OPÉRATION", style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-        ],
-      ),
+        );
+      }
     );
   }
 
@@ -2172,14 +2233,26 @@ class _SettingsTabState extends State<_SettingsTab> {
 
     setState(() => _isConnectingWhatsapp = true);
     try {
-      await WhatsAppService.resendPairingNotification(enterpriseId, phone);
+      final newCode = await WhatsAppService.resendPairingNotification(enterpriseId, phone);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Notification renvoyée. Vérifiez WhatsApp sur votre téléphone.'),
-            duration: Duration(seconds: 4),
-          ),
-        );
+        if (newCode != null) {
+          setState(() {
+            _whatsappPairingCode = newCode;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Nouveau code généré. Vérifiez la notification sur votre téléphone.'),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Notification renvoyée. Vérifiez WhatsApp.'),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
       }
     } catch (_) {
       if (mounted) {
@@ -2843,7 +2916,7 @@ class _SettingsTabState extends State<_SettingsTab> {
                             controller: _whatsappPhoneNumberController,
                             decoration: const InputDecoration(
                               labelText: "Votre numéro WhatsApp",
-                              hintText: "2290157543682",
+                              hintText: "229 01 XXXXXXXX",
                               prefixIcon: Icon(Icons.phone),
                               helperText: "Obligatoire : commence par 229",
                             ),

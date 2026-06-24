@@ -4,12 +4,16 @@ import '../app_config.dart';
 
 class SmsService {
   static const String baseUrl = AppConfig.smsServiceUrl;
+  static Map<String, String> _headers() => {
+        'Content-Type': 'application/json',
+        'x-api-key': AppConfig.internalApiKey,
+      };
 
   static Future<Map<String, dynamic>> configureGateway(String gatewayUrl, String apiToken) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/configure'),
-        headers: {'Content-Type': 'application/json'},
+        headers: _headers(),
         body: jsonEncode({'gatewayUrl': gatewayUrl, 'apiToken': apiToken}),
       );
       return jsonDecode(response.body);
@@ -22,7 +26,7 @@ class SmsService {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/send'),
-        headers: {'Content-Type': 'application/json'},
+        headers: _headers(),
         body: jsonEncode({
           'phoneNumbers': phoneNumbers,
           'message': message,

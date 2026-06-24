@@ -22,7 +22,7 @@
   "firestore": {
     "database": "gcrm-c2cdd",
     "location": "nam5",
-    "rules": "y",
+    "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
   "functions": [

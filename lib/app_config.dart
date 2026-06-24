@@ -1,21 +1,38 @@
 class AppConfig {
-  // Brevo Configuration (Global)
-  static const String brevoApiKey = 'REMPLACER_PAR_VOTRE_CLE_BREVO';
-  static const String brevoSenderEmail = 'jeanjonathan.v.pro@gmail.com';
-  static const String brevoSenderName = 'G-CRM';
+  // IMPORTANT:
+  // Ne jamais stocker de secrets dans le code.
+  // Injecter via --dart-define à la build/release.
 
-  // Africa's Talking Configuration (Global)
-  static const String africaTalkingApiKey = 'REMPLACER_PAR_VOTRE_CLE_AFRICA_TALKING';
-  static const String africaTalkingUsername = 'sandbox';
-  static const String africaTalkingPhoneNumber = '';
+  static const String brevoApiKey =
+      String.fromEnvironment('BREVO_API_KEY', defaultValue: '');
+  static const String brevoSenderEmail =
+      String.fromEnvironment('BREVO_SENDER_EMAIL', defaultValue: '');
+  static const String brevoSenderName =
+      String.fromEnvironment('BREVO_SENDER_NAME', defaultValue: 'G-CRM');
 
-  // Evolution API Configuration (Global - Notre serveur privé)
-  static const String evolutionApiUrl = 'https://evolution-api-latest-62vs.onrender.com';
-  static const String evolutionApiKey = 'REMPLACER_PAR_VOTRE_CLE_EVOLUTION';
+  static const String africaTalkingApiKey =
+      String.fromEnvironment('AFRICATALKING_API_KEY', defaultValue: '');
+  static const String africaTalkingUsername =
+      String.fromEnvironment('AFRICATALKING_USERNAME', defaultValue: '');
+  static const String africaTalkingPhoneNumber =
+      String.fromEnvironment('AFRICATALKING_PHONE_NUMBER', defaultValue: '');
 
-  // WhatsApp Microservice Configuration (Obsolete - conservé pour compatibilité temporaire)
-  static const String whatsappServiceUrl = 'http://localhost:3000';
+  static const String evolutionApiUrl = String.fromEnvironment(
+    'EVOLUTION_API_URL',
+    defaultValue: 'https://evolution-api-latest-62vs.onrender.com',
+  );
+  static const String evolutionApiKey =
+      String.fromEnvironment('EVOLUTION_API_KEY', defaultValue: '');
 
-  // SMS Microservice Configuration (Obsolete - conservé pour compatibilité temporaire)
-  static const String smsServiceUrl = 'http://localhost:3001';
+  // Compat legacy microservices
+  static const String whatsappServiceUrl = String.fromEnvironment(
+    'WHATSAPP_SERVICE_URL',
+    defaultValue: 'http://localhost:3000',
+  );
+  static const String smsServiceUrl = String.fromEnvironment(
+    'SMS_SERVICE_URL',
+    defaultValue: 'http://localhost:3001',
+  );
+  static const String internalApiKey =
+      String.fromEnvironment('INTERNAL_API_KEY', defaultValue: '');
 }

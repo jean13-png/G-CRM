@@ -46,6 +46,15 @@ app.*.map.json
 
 # Node modules (Cloud Functions)
 **/node_modules/
-**/package-lock.json
 /functions/lib/
+
+# Secrets / env files
+**/.env
+**/.env.*
+!**/.env.example
+**/*service-account*.json
+**/firebase-service-account.json
+android/key.properties
+**/*.jks
+**/*.keystore
 

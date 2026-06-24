@@ -153,41 +153,53 @@ class WhatsAppService {
     final cleanPhone = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
 
     try {
+      // 1. Reset propre de l'instance pour éviter les conflits de session
       try {
         await deleteInstance(enterpriseId);
       } catch (_) {}
 
+      // 2. Création de l'instance SANS le numéro de téléphone
+      // Le numéro ne sera pas passé ici pour ne pas générer un code trop tôt
       final createData = await _createInstance(
         enterpriseId,
         qrcode: false,
-        phoneNumber: cleanPhone,
+        phoneNumber: null, // IMPORTANT: pas de numéro ici
       );
 
-      final fromCreate = createData['qrcode']?['pairingCode']?.toString() ??
-          createData['pairingCode']?.toString();
-      if (fromCreate != null && fromCreate.isNotEmpty) {
-        return fromCreate;
-      }
-
-      // Laisser Baileys initialiser la session avant /connect
+      // 3. Attendre un peu que Baileys initialise la session
+      debugPrint('Instance créée, attente 3s pour initialisation...');
       await Future.delayed(const Duration(seconds: 3));
 
+      // 4. UN SEUL ET UNIQUE APPEL à /connect?number=
+      // C'est cet appel qui va générer LE CODE UNIQUE et LA NOTIFICATION UNIQUE
       return await _fetchPairingCodeFromConnect(instanceName, cleanPhone);
+
     } catch (e) {
-      debugPrint('requestPairingCode: $e');
-      throw Exception('Impossible de générer le code. Réessayez dans quelques instants.');
+      debugPrint('❌ requestPairingCode error: $e');
+      rethrow;
     }
   }
 
   // Relance une seule demande de couplage (pour recevoir la notif WhatsApp)
-  static Future<void> resendPairingNotification(String enterpriseId, String phoneNumber) async {
+  static Future<String?> resendPairingNotification(String enterpriseId, String phoneNumber) async {
     final instanceName = _getInstanceName(enterpriseId);
     final cleanPhone = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
-    await http.get(
+    
+    // IMPORTANT: Cet appel génère un NOUVEAU code sur le serveur.
+    final response = await http.get(
       Uri.parse('${_getBaseUrl()}/instance/connect/$instanceName')
           .replace(queryParameters: {'number': cleanPhone}),
       headers: _headers(),
     ).timeout(const Duration(seconds: 30));
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      return data['pairingCode']?.toString() ?? 
+             data['code']?.toString() ?? 
+             data['qrcode']?['pairingCode']?.toString();
+    }
+    
+    return null;
   }
 
   static Future<String> _fetchPairingCodeFromConnect(
@@ -197,24 +209,29 @@ class WhatsAppService {
     final uri = Uri.parse('${_getBaseUrl()}/instance/connect/$instanceName')
         .replace(queryParameters: {'number': cleanPhone});
 
-    for (var attempt = 1; attempt <= 3; attempt++) {
-      final response = await http.get(uri, headers: _headers())
-          .timeout(const Duration(seconds: 30));
+    debugPrint('Appel unique à /connect pour pairing code: $uri');
+    
+    final response = await http.get(uri, headers: _headers())
+        .timeout(const Duration(seconds: 45));
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final pairingCode = data['pairingCode']?.toString();
-        if (pairingCode != null && pairingCode.isNotEmpty) {
-          return pairingCode;
-        }
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      // Chercher le code dans tous les champs possibles d'Evolution API v2
+      final pairingCode = data['pairingCode']?.toString() ?? 
+                         data['code']?.toString() ?? 
+                         data['qrcode']?['pairingCode']?.toString();
+                         
+      if (pairingCode != null && pairingCode.isNotEmpty) {
+        debugPrint('Pairing code reçu: $pairingCode');
+        return pairingCode;
       }
-
-      if (attempt < 3) {
-        await Future.delayed(const Duration(seconds: 3));
-      }
+      
+      debugPrint('Réponse 200 mais aucun code trouvé: ${response.body}');
+    } else {
+      debugPrint('Erreur /connect (${response.statusCode}): ${response.body}');
     }
 
-    throw Exception('Impossible de générer le code. Réessayez dans quelques instants.');
+    throw Exception('Le serveur n\'a pas généré de code. Veuillez réessayer.');
   }
 
   static Future<Map<String, dynamic>> connectInstance(
@@ -318,12 +335,19 @@ class WhatsAppService {
     await batch.commit();
   }
 
-  // Formater le numéro de téléphone pour WhatsApp (supprimer les espaces, ajouter + si besoin)
+  // Formater le numéro de téléphone pour WhatsApp
   static String _formatPhoneNumber(String phone) {
+    // 1. Garder uniquement les chiffres
     String cleaned = phone.replaceAll(RegExp(r'[^0-9]'), '');
-    if (!cleaned.startsWith('+')) {
-      cleaned = '+$cleaned';
+    
+    // 2. Si ça commence par 00, on remplace par rien (on suppose que c'est un préfixe international)
+    if (cleaned.startsWith('00')) {
+      cleaned = cleaned.substring(2);
     }
+
+    // Pour le Bénin (nouveau plan numérique), le 0 initial est souvent obligatoire
+    // On garde le numéro tel qu'il est (après nettoyage des caractères spéciaux)
+    
     return cleaned;
   }
 
@@ -337,31 +361,57 @@ class WhatsAppService {
   }
 
   // Envoyer un seul message WhatsApp via Evolution API
-  static Future<bool> sendSingleMessage({
+  static Future<Map<String, dynamic>> sendSingleMessage({
     required String enterpriseId,
     required String phone,
     required String message,
   }) async {
     try {
       final instanceName = _getInstanceName(enterpriseId);
-      
       final headers = _headers(json: true);
       
+      final formattedPhone = _formatPhoneNumber(phone);
+      debugPrint('Tentative d\'envoi WhatsApp vers $formattedPhone');
+
       final response = await http.post(
         Uri.parse('${_getBaseUrl()}/message/sendText/$instanceName'),
         headers: headers,
         body: jsonEncode({
-          'number': _formatPhoneNumber(phone),
+          'number': formattedPhone,
           'text': message,
           'delay': 1200,
           'presence': 'composing',
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 15));
 
-      return response.statusCode == 200 || response.statusCode == 201;
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        debugPrint('Erreur envoi WhatsApp (${response.statusCode}): ${response.body}');
+        
+        // Cas spécifique du numéro qui n'existe pas
+        if (response.statusCode == 400 && response.body.contains('"exists":false')) {
+          return {
+            'success': false,
+            'error': 'Le numéro n\'est pas enregistré sur WhatsApp.',
+            'details': data
+          };
+        }
+
+        return {
+          'success': false, 
+          'error': 'Erreur serveur (${response.statusCode})',
+          'details': data
+        };
+      }
+      
+      return {'success': true};
     } catch (e) {
       debugPrint('Erreur envoi message WhatsApp: $e');
-      return false;
+      return {
+        'success': false, 
+        'error': e is TimeoutException ? 'Délai d\'attente dépassé (Serveur lent)' : 'Erreur inconnue',
+      };
     }
   }
 }

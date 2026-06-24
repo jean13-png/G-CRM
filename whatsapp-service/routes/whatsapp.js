@@ -2,6 +2,20 @@ const express = require('express');
 const whatsappService = require('../services/whatsappService');
 const queueService = require('../services/queueService');
 const router = express.Router();
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
+
+function authMiddleware(req, res, next) {
+  if (!INTERNAL_API_KEY) {
+    return res.status(503).json({ error: 'Service non configure' });
+  }
+  const incoming = req.header('x-api-key');
+  if (!incoming || incoming !== INTERNAL_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  return next();
+}
+
+router.use(authMiddleware);
 
 // Route pour créer une nouvelle session WhatsApp (QR code)
 router.post('/session/:enterpriseId', async (req, res) => {
@@ -30,6 +44,9 @@ router.post('/check-number/:enterpriseId', async (req, res) => {
   try {
     const enterpriseId = req.params.enterpriseId;
     const { phoneNumber } = req.body;
+    if (!phoneNumber || typeof phoneNumber !== 'string') {
+      return res.status(400).json({ error: 'phoneNumber invalide' });
+    }
     const exists = await whatsappService.checkIfWhatsAppNumber(enterpriseId, phoneNumber);
     res.status(200).json({ phoneNumber, exists });
   } catch (error) {
@@ -43,10 +60,10 @@ router.post('/send-bulk/:enterpriseId', async (req, res) => {
     const enterpriseId = req.params.enterpriseId;
     const { prospects, message } = req.body;
     
-    if (!prospects || prospects.length === 0) {
+    if (!Array.isArray(prospects) || prospects.length === 0) {
       return res.status(400).json({ error: 'No prospects provided' });
     }
-    if (!message) {
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({ error: 'No message provided' });
     }
 
