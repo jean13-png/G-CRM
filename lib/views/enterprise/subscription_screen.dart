@@ -7,6 +7,7 @@ import '../../services/database_service.dart';
 import '../../models/enterprise.dart';
 import '../../app_config.dart';
 import '../../theme.dart';
+import 'claim_screen.dart';
 
 // ============================================================
 //  Modèle des plans tarifaires (synchronisé avec SAAS_PRICING_SPEC.md)
@@ -432,6 +433,18 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mes Abonnements'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.support_agent),
+            tooltip: 'Réclamation',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ClaimScreen()),
+              );
+            },
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
