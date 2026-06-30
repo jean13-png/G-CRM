@@ -916,6 +916,36 @@ class DatabaseService extends ChangeNotifier {
       );
     }
   }
+  // Create a notification
+  Future<void> createNotification({
+    required String targetUserId,
+    required String title,
+    required String body,
+    String type = 'general',
+    String? relatedId,
+  }) async {
+    if (currentEnterprise == null) return;
+
+    final notifId = "notif_${DateTime.now().millisecondsSinceEpoch}_${targetUserId.hashCode}";
+    final notif = AppNotification(
+      id: notifId,
+      title: title,
+      body: body,
+      timestamp: DateTime.now(),
+      type: type,
+      relatedId: relatedId,
+      targetUserId: targetUserId,
+    );
+
+    await FirebaseFirestore.instance
+        .collection('notifications')
+        .doc(notifId)
+        .set(notif.toMap());
+        
+    _notifyNewAppNotification(notif);
+  }
+
+  // Assign a list of prospects to an agent
   Future<void> assignProspectsToAgent(String agentId, List<String> prospectIds) async {
     if (_currentEnterprise == null) return;
     
