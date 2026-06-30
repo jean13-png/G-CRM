@@ -254,9 +254,9 @@ class _AnalyticsTab extends StatelessWidget {
 
   int _getMaxQuota(String plan, String type) {
     if (plan == 'DISCOVERY') {
-      if (type == 'appels') return 250;
-      if (type == 'sms') return 250;
-      if (type == 'whatsapp') return 100;
+      if (type == 'appels') return 300;
+      if (type == 'sms') return 300;
+      if (type == 'whatsapp') return 150;
     } else if (plan == 'STARTER') {
       if (type == 'appels') return 600;
       if (type == 'sms') return 600;

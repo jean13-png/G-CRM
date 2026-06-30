@@ -734,15 +734,15 @@ class DatabaseService extends ChangeNotifier {
     switch (planId) {
       case 'DISCOVERY':
         return {
-          'appelsManuels': 250,
-          'smsManuels': 250,
-          'whatsappManuels': 100,
+          'appelsManuels': 300,
+          'smsManuels': 300,
+          'whatsappManuels': 150,
           'appelsGroupes': 0,
           'smsGroupes': 0,
           'whatsappGroupes': 0,
           'emailsGroupes': 0,
           'prospects': 50,
-          'agents': 2,
+          'agents': 3,
         };
       case 'STARTER':
         return {
