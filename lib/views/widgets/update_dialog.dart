@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../services/update_service.dart';
-import '../theme.dart';
+import '../../services/update_service.dart';
+import '../../theme.dart';
 
 class UpdateDialog extends StatefulWidget {
   final UpdateInfo updateInfo;
