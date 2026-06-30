@@ -893,10 +893,10 @@ class DatabaseService extends ChangeNotifier {
     final agents = getAgentsForCurrentEnterprise();
     for (var agent in agents) {
       final agentProspects = _prospects.values.where((x) => x.agentId == agent.id);
-      int ok = agentProspects.where((x) => x.status == 'Succès').length;
-      int non = agentProspects.where((x) => x.status == 'Refus').length;
-      int unreachable = agentProspects.where((x) => x.status == 'unreachable').length;
-      int pending = agentProspects.where((x) => x.status == 'pending').length;
+      int ok = agentProspects.where((x) => x.status == 'Succès' || x.status == 'ok').length;
+      int non = agentProspects.where((x) => x.status == 'Refus' || x.status == 'non').length;
+      int unreachable = agentProspects.where((x) => x.status == 'Injoignable' || x.status == 'unreachable').length;
+      int pending = agentProspects.where((x) => x.status == 'En attente' || x.status == 'pending').length;
       map[agent.name] = {
         'ok': ok,
         'non': non,
