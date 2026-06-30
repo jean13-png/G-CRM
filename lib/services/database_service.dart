@@ -9,6 +9,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../app_config.dart';
 import '../models/enterprise.dart';
 import '../models/agent.dart';
@@ -725,7 +726,196 @@ class DatabaseService extends ChangeNotifier {
 
   // ================= PROSPECT ACTIONS =================
 
-  // Assign a list of prospects to an agent
+  // Helper to get plan quotas
+  Map<String, int> _getPlanQuotas(String planId) {
+    switch (planId) {
+      case 'DISCOVERY':
+        return {
+          'appelsManuels': 250,
+          'smsManuels': 250,
+          'whatsappManuels': 100,
+          'appelsGroupes': 0,
+          'smsGroupes': 0,
+          'whatsappGroupes': 0,
+          'emailsGroupes': 0,
+          'prospects': 50,
+          'agents': 2,
+        };
+      case 'STARTER':
+        return {
+          'appelsManuels': 600,
+          'smsManuels': 600,
+          'whatsappManuels': 400,
+          'appelsGroupes': 0,
+          'smsGroupes': 0,
+          'whatsappGroupes': 0,
+          'emailsGroupes': 0,
+          'prospects': 800,
+          'agents': 5,
+        };
+      case 'PRO':
+        return {
+          'appelsManuels': 3500,
+          'smsManuels': 3500,
+          'whatsappManuels': 1800,
+          'appelsGroupes': 0,
+          'smsGroupes': 0,
+          'whatsappGroupes': 0,
+          'emailsGroupes': 0,
+          'prospects': 5000,
+          'agents': 20,
+        };
+      case 'BUSINESS':
+        return {
+          'appelsManuels': 10000,
+          'smsManuels': 10000,
+          'whatsappManuels': 5000,
+          'appelsGroupes': 0,
+          'smsGroupes': 0,
+          'whatsappGroupes': 0,
+          'emailsGroupes': 0,
+          'prospects': 20000,
+          'agents': 100,
+        };
+      default:
+        return _getPlanQuotas('DISCOVERY');
+    }
+  }
+
+  // Activate a subscription plan
+  Future<void> activateSubscriptionPlan({
+    required String planId,
+  }) async {
+    if (currentEnterprise == null) return;
+
+    final quotas = _getPlanQuotas(planId);
+    final now = DateTime.now();
+    final endDate = now.add(const Duration(days: 30));
+
+    final updatedEnterprise = currentEnterprise!.copyWith(
+      planId: planId,
+      appelsManuelsRestants: quotas['appelsManuels'],
+      smsManuelsRestants: quotas['smsManuels'],
+      whatsappManuelsRestants: quotas['whatsappManuels'],
+      appelsGroupesRestants: quotas['appelsGroupes'],
+      smsGroupesRestants: quotas['smsGroupes'],
+      whatsappGroupesRestants: quotas['whatsappGroupes'],
+      emailsGroupesRestants: quotas['emailsGroupes'],
+      prospectsRestants: quotas['prospects'],
+      agentsRestants: quotas['agents'],
+      subscriptionStartDate: now,
+      subscriptionEndDate: endDate,
+    );
+
+    await FirebaseFirestore.instance
+        .collection('enterprises')
+        .doc(updatedEnterprise.id)
+        .update(updatedEnterprise.toMap());
+
+    _currentEnterprise = updatedEnterprise;
+    notifyListeners();
+
+    // Send notification
+    await createNotification(
+      targetUserId: updatedEnterprise.id,
+      title: 'Abonnement activé !',
+      body: 'Votre abonnement $planId a été activé et expire le ${endDate.day}/${endDate.month}/${endDate.year}.',
+      type: 'subscription',
+    );
+  }
+
+  // Check for subscription expiration
+  Future<void> checkSubscriptionExpiration() async {
+    if (currentEnterprise == null) return;
+    if (currentEnterprise!.subscriptionEndDate == null) return;
+
+    final now = DateTime.now();
+    final endDate = currentEnterprise!.subscriptionEndDate!;
+    final daysUntilExpiration = endDate.difference(now).inDays;
+
+    // Check if we need to send a notification
+    final lastNotificationKey = 'last_subscription_expiration_notification';
+    final prefs = await SharedPreferences.getInstance();
+    final lastNotificationDate = prefs.getString(lastNotificationKey);
+
+    // Send notification if 7, 3, or 1 day left and we haven't sent one yet for this period
+    bool shouldSend = false;
+    String? message;
+
+    if (daysUntilExpiration == 7) {
+      shouldSend = lastNotificationDate != '7';
+      message = 'Votre abonnement expire dans 7 jours ! Renouvelez-le maintenant.';
+    } else if (daysUntilExpiration == 3) {
+      shouldSend = lastNotificationDate != '3';
+      message = 'Votre abonnement expire dans 3 jours ! Renouvelez-le rapidement.';
+    } else if (daysUntilExpiration == 1) {
+      shouldSend = lastNotificationDate != '1';
+      message = 'Votre abonnement expire DEMAIN ! Renouvelez-le immédiatement.';
+    } else if (daysUntilExpiration <= 0) {
+      shouldSend = lastNotificationDate != '0';
+      message = 'Votre abonnement a expiré ! Renouvelez-le pour reprendre l\'utilisation.';
+      
+      // Downgrade to Discovery if expired
+      await activateSubscriptionPlan(planId: 'DISCOVERY');
+    }
+
+    if (shouldSend && message != null) {
+      await createNotification(
+        targetUserId: currentEnterprise!.id,
+        title: 'Abonnement',
+        body: message,
+        type: 'subscription',
+      );
+      
+      // Save last notification date
+      await prefs.setString(lastNotificationKey, daysUntilExpiration.toString());
+    }
+  }
+
+  // Reset monthly quotas
+  Future<void> resetMonthlyQuotasIfNeeded() async {
+    if (currentEnterprise == null) return;
+    final now = DateTime.now();
+    
+    final prefs = await SharedPreferences.getInstance();
+    final lastResetKey = 'last_monthly_quota_reset';
+    final lastReset = prefs.getString(lastResetKey);
+    
+    // Check if we need to reset (first day of month or new user)
+    final shouldReset = lastReset == null || 
+        DateTime.parse(lastReset).month != now.month ||
+        DateTime.parse(lastReset).year != now.year;
+        
+    if (shouldReset) {
+      final quotas = _getPlanQuotas(currentEnterprise!.planId);
+      final updatedEnterprise = currentEnterprise!.copyWith(
+        appelsManuelsRestants: quotas['appelsManuels'],
+        smsManuelsRestants: quotas['smsManuels'],
+        whatsappManuelsRestants: quotas['whatsappManuels'],
+        appelsGroupesRestants: quotas['appelsGroupes'],
+        smsGroupesRestants: quotas['smsGroupes'],
+        whatsappGroupesRestants: quotas['whatsappGroupes'],
+        emailsGroupesRestants: quotas['emailsGroupes'],
+      );
+      
+      await FirebaseFirestore.instance
+          .collection('enterprises')
+          .doc(updatedEnterprise.id)
+          .update(updatedEnterprise.toMap());
+      
+      _currentEnterprise = updatedEnterprise;
+      notifyListeners();
+      
+      await prefs.setString(lastResetKey, now.toIso8601String());
+      
+      await createNotification(
+        targetUserId: currentEnterprise!.id,
+        title: 'Quotas réinitialisés !',
+        body: 'Vos quotas mensuels ont été réinitialisés pour ce mois.',
+        type: 'quota',
+      );
+    }
+  }
   Future<void> assignProspectsToAgent(String agentId, List<String> prospectIds) async {
     if (_currentEnterprise == null) return;
     

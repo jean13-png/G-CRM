@@ -170,11 +170,15 @@ class MainGate extends StatefulWidget {
 
 class _MainGateState extends State<MainGate> {
   bool _updateChecked = false;
+  bool _subscriptionChecked = false;
+  bool _quotasChecked = false;
 
   @override
   void initState() {
     super.initState();
     _checkForUpdates();
+    _checkSubscription();
+    _checkQuotas();
   }
 
   Future<void> _checkForUpdates() async {
@@ -196,6 +200,26 @@ class _MainGateState extends State<MainGate> {
         ),
       );
     }
+  }
+
+  Future<void> _checkSubscription() async {
+    if (_subscriptionChecked) return;
+    _subscriptionChecked = true;
+
+    await Future.delayed(const Duration(seconds: 2));
+
+    final db = Provider.of<DatabaseService>(context, listen: false);
+    await db.checkSubscriptionExpiration();
+  }
+
+  Future<void> _checkQuotas() async {
+    if (_quotasChecked) return;
+    _quotasChecked = true;
+
+    await Future.delayed(const Duration(seconds: 3));
+
+    final db = Provider.of<DatabaseService>(context, listen: false);
+    await db.resetMonthlyQuotasIfNeeded();
   }
 
   @override

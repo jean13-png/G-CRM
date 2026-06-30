@@ -543,75 +543,92 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       ),
       child: Padding(
         padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(plan.icon, color: Colors.white, size: 28),
-              const SizedBox(width: 10),
-              Text(
-                'Plan ${plan.name}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(plan.icon, color: Colors.white, size: 28),
+                const SizedBox(width: 10),
+                Text(
+                  'Plan ${plan.name}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              const Spacer(),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'Actif',
+                    style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            if (enterprise.subscriptionEndDate != null) ...[
+              const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(20),
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Text(
-                  'Actif',
-                  style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                child: Text(
+                  'Expire le ${enterprise.subscriptionEndDate!.day}/${enterprise.subscriptionEndDate!.month}/${enterprise.subscriptionEndDate!.year}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Utilisation ce mois',
-            style: TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-          const SizedBox(height: 10),
-          ...quotas.entries.map((e) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(e.key, style: const TextStyle(color: Colors.white, fontSize: 12)),
-                        Text(
-                          '${e.value.used} / ${e.value.total}',
-                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: e.value.total > 0 ? (e.value.used / e.value.total).clamp(0.0, 1.0) : 0,
-                        minHeight: 5,
-                        backgroundColor: Colors.white.withOpacity(0.2),
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          e.value.total > 0 && e.value.used / e.value.total > 0.9
-                              ? Colors.red.shade200
-                              : Colors.white,
+            const SizedBox(height: 16),
+            const Text(
+              'Utilisation ce mois',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const SizedBox(height: 10),
+            ...quotas.entries.map((e) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(e.key, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                          Text(
+                            '${e.value.used} / ${e.value.total}',
+                            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: e.value.total > 0 ? (e.value.used / e.value.total).clamp(0.0, 1.0) : 0,
+                          minHeight: 5,
+                          backgroundColor: Colors.white.withOpacity(0.2),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            e.value.total > 0 && e.value.used / e.value.total > 0.9
+                                ? Colors.red.shade200
+                                : Colors.white,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              )),
-        ],
-      ),
+                    ],
+                  ),
+                )),
+          ],
+        ),
       ),
     );
   }

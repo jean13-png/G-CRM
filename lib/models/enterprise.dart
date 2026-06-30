@@ -102,6 +102,10 @@ class Enterprise {
   final int emailsGroupesRestants;
   final int prospectsRestants;
   final int agentsRestants;
+  
+  // Abonnement dates
+  final DateTime? subscriptionStartDate;
+  final DateTime? subscriptionEndDate;
 
   Enterprise({
     required this.id,
@@ -125,6 +129,8 @@ class Enterprise {
     this.emailsGroupesRestants = 0,
     this.prospectsRestants = 50,
     this.agentsRestants = 2,
+    this.subscriptionStartDate,
+    this.subscriptionEndDate,
   });
 
   static List<String> get platformDefaultVerdicts => [
@@ -167,6 +173,8 @@ class Enterprise {
     int? emailsGroupesRestants,
     int? prospectsRestants,
     int? agentsRestants,
+    DateTime? subscriptionStartDate,
+    DateTime? subscriptionEndDate,
   }) {
     return Enterprise(
       id: id ?? this.id,
@@ -190,6 +198,8 @@ class Enterprise {
       emailsGroupesRestants: emailsGroupesRestants ?? this.emailsGroupesRestants,
       prospectsRestants: prospectsRestants ?? this.prospectsRestants,
       agentsRestants: agentsRestants ?? this.agentsRestants,
+      subscriptionStartDate: subscriptionStartDate ?? this.subscriptionStartDate,
+      subscriptionEndDate: subscriptionEndDate ?? this.subscriptionEndDate,
     );
   }
 
@@ -216,6 +226,8 @@ class Enterprise {
       'emailsGroupesRestants': emailsGroupesRestants,
       'prospectsRestants': prospectsRestants,
       'agentsRestants': agentsRestants,
+      'subscriptionStartDate': subscriptionStartDate?.toIso8601String(),
+      'subscriptionEndDate': subscriptionEndDate?.toIso8601String(),
     };
   }
 
@@ -248,6 +260,12 @@ class Enterprise {
       emailsGroupesRestants: map['emailsGroupesRestants'] ?? 0,
       prospectsRestants: map['prospectsRestants'] ?? 50,
       agentsRestants: map['agentsRestants'] ?? 2,
+      subscriptionStartDate: map['subscriptionStartDate'] != null
+          ? DateTime.tryParse(map['subscriptionStartDate'])
+          : null,
+      subscriptionEndDate: map['subscriptionEndDate'] != null
+          ? DateTime.tryParse(map['subscriptionEndDate'])
+          : null,
     );
   }
 
