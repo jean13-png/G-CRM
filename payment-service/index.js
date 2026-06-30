@@ -193,15 +193,16 @@ app.post("/create-transaction", requireApiKey, async (req, res) => {
 
     console.log("FedaPay token response:", JSON.stringify(tokenRes.data));
 
-    const token =
-      tokenRes.data?.v1?.token?.token ||
-      tokenRes.data?.token ||
-      tokenRes.data?.url;
-    if (!token) {
-      throw new Error(`Token introuvable: ${JSON.stringify(tokenRes.data)}`);
-    }
+    // La doc FedaPay confirme : /token retourne { token, url } directement
+    const checkoutToken = tokenRes.data?.token;
+    const checkoutUrl =
+      tokenRes.data?.url ||
+      (checkoutToken ? `https://checkout.fedapay.com/${checkoutToken}` : null) ||
+      tokenRes.data?.v1?.token?.url;
 
-    const checkoutUrl = `https://checkout.fedapay.com/${token}`;
+    if (!checkoutUrl) {
+      throw new Error(`URL de paiement introuvable: ${JSON.stringify(tokenRes.data)}`);
+    }
 
     // 3. Enregistrer la transaction en attente dans Firestore
     await db
