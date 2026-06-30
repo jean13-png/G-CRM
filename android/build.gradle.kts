@@ -1,3 +1,13 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools:desugar_jdk_libs:2.0.4")
+    }
+}
+
 allprojects {
     repositories {
         google()
