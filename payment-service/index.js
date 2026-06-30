@@ -164,25 +164,41 @@ app.post("/create-transaction", requireApiKey, async (req, res) => {
       }
     );
 
-    const transaction = fedapayRes.data?.v1?.transaction;
+    // FedaPay retourne 201, on log la réponse brute pour debug
+    console.log("FedaPay create response status:", fedapayRes.status);
+    console.log("FedaPay create response data:", JSON.stringify(fedapayRes.data));
+
+    // FedaPay peut wrapper dans v1.transaction ou retourner directement
+    const transaction =
+      fedapayRes.data?.v1?.transaction ||
+      fedapayRes.data?.transaction ||
+      fedapayRes.data;
+
     if (!transaction?.id) {
-      throw new Error("Réponse FedaPay invalide (pas de transaction.id)");
+      throw new Error(`Réponse FedaPay invalide: ${JSON.stringify(fedapayRes.data)}`);
     }
 
     // 2. Générer le token de paiement (checkout URL)
-    const tokenRes = await axios.get(
+    const tokenRes = await axios.post(
       `${FEDAPAY_API_URL}/transactions/${transaction.id}/token`,
+      {},
       {
         headers: {
           Authorization: `Bearer ${FEDAPAY_SECRET_KEY}`,
+          "Content-Type": "application/json",
         },
         timeout: 10000,
       }
     );
 
-    const token = tokenRes.data?.v1?.token?.token;
+    console.log("FedaPay token response:", JSON.stringify(tokenRes.data));
+
+    const token =
+      tokenRes.data?.v1?.token?.token ||
+      tokenRes.data?.token ||
+      tokenRes.data?.url;
     if (!token) {
-      throw new Error("Token de paiement introuvable dans la réponse FedaPay");
+      throw new Error(`Token introuvable: ${JSON.stringify(tokenRes.data)}`);
     }
 
     const checkoutUrl = `https://checkout.fedapay.com/${token}`;
