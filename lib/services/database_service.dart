@@ -428,6 +428,9 @@ class DatabaseService extends ChangeNotifier {
       _enterprises[userId] = enterprise;
       _currentAgent = null;
 
+      // Activate the initial plan
+      await activateSubscriptionPlan(planId: 'DISCOVERY');
+
       _initializeListeners('enterprise', userId, userId);
       notifyListeners();
       return true;

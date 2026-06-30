@@ -273,9 +273,10 @@ class _AnalyticsTab extends StatelessWidget {
     return 100; // default
   }
 
-  Widget _buildQuotaGauge(String label, int current, int max) {
-    final double percent = max > 0 ? (current / max).clamp(0.0, 1.0) : 0;
-    final Color color = percent > 0.2 ? AppTheme.primaryColor : (percent > 0 ? AppTheme.warningColor : AppTheme.errorColor);
+  Widget _buildQuotaGauge(String label, int remaining, int max) {
+    final int used = max - remaining;
+    final double percent = max > 0 ? (used / max).clamp(0.0, 1.0) : 0;
+    final Color color = percent > 0.8 ? AppTheme.errorColor : (percent > 0.5 ? AppTheme.warningColor : AppTheme.successColor);
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -284,7 +285,7 @@ class _AnalyticsTab extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-            Text("$current / $max", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color)),
+            Text("$used / $max", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color)),
           ],
         ),
         const SizedBox(height: 6),
