@@ -49,8 +49,7 @@ class UpdateService {
   //   "apkUrl": "https://your-server.com/app-release.apk",
   //   "description": "Nouvelles fonctionnalités et corrections de bugs"
   // }
-  static const String updateCheckUrl = 'https://your-server.com/update.json';
-
+  static const String updateCheckUrl = 'https://gcrm.kesug.com/update.json';
   CancelToken? _downloadCancelToken;
 
   Future<UpdateInfo> checkForUpdate() async {
