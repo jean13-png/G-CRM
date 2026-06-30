@@ -63,6 +63,17 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
 
   // Launch direct phone call
   Future<void> _makeCall(String phoneNumber) async {
+    final db = Provider.of<DatabaseService>(context, listen: false);
+    final hasQuota = await db.checkAndConsumeQuota('appel_manuel', 1);
+    if (!hasQuota) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Crédits d'appels épuisés."), backgroundColor: AppTheme.errorColor),
+        );
+      }
+      return;
+    }
+
     final Uri url = Uri.parse("tel:$phoneNumber");
     setState(() {
       _callLaunched = true;
@@ -88,6 +99,16 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
   // Launch WhatsApp Chat
   Future<void> _sendWhatsApp(String phoneNumber) async {
     final db = Provider.of<DatabaseService>(context, listen: false);
+    final hasQuota = await db.checkAndConsumeQuota('whatsapp_manuel', 1);
+    if (!hasQuota) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Crédits WhatsApp épuisés."), backgroundColor: AppTheme.errorColor),
+        );
+      }
+      return;
+    }
+
     final message = _selectedTemplate != null 
         ? _selectedTemplate!.content 
         : "Bonjour, je vous contacte suite à notre prospection de terrain.";
@@ -115,6 +136,16 @@ class _TaskCallScreenState extends State<TaskCallScreen> with WidgetsBindingObse
   // Launch SMS
   Future<void> _sendSMS(String phoneNumber) async {
     final db = Provider.of<DatabaseService>(context, listen: false);
+    final hasQuota = await db.checkAndConsumeQuota('sms_manuel', 1);
+    if (!hasQuota) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Crédits SMS épuisés."), backgroundColor: AppTheme.errorColor),
+        );
+      }
+      return;
+    }
+
     final message = _selectedTemplate != null 
         ? _selectedTemplate!.content 
         : "Bonjour, je vous contacte pour faire suite à notre échange.";

@@ -1,0 +1,26 @@
+# render.yaml — Configuration de déploiement Render.com
+# Permet de déployer le payment-service en un clic depuis le dashboard Render
+
+services:
+  - type: web
+    name: g-crm-payment-service
+    runtime: node
+    rootDir: payment-service
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3002
+      - key: FEDAPAY_SECRET_KEY
+        sync: false   # À renseigner manuellement dans le dashboard Render (secret)
+      - key: FEDAPAY_PUBLIC_KEY
+        sync: false
+      - key: PAYMENT_SERVICE_URL
+        sync: false   # Ex: https://g-crm-payment-service.onrender.com
+      - key: INTERNAL_API_KEY
+        value: gcrm_pay_internal_2026
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false   # JSON en une seule ligne depuis Firebase Console

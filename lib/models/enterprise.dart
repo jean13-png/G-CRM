@@ -91,6 +91,18 @@ class Enterprise {
   final bool autoAssignToAgent; // If true, prospects added by agents are auto-assigned for follow-up
   final List<String> customVerdicts; // Custom call outcomes defined by enterprise
 
+  // Saas Quotas
+  final String planId;
+  final int appelsManuelsRestants;
+  final int smsManuelsRestants;
+  final int whatsappManuelsRestants;
+  final int appelsGroupesRestants;
+  final int smsGroupesRestants;
+  final int whatsappGroupesRestants;
+  final int emailsGroupesRestants;
+  final int prospectsRestants;
+  final int agentsRestants;
+
   Enterprise({
     required this.id,
     required this.name,
@@ -103,6 +115,16 @@ class Enterprise {
     this.defaultCountryCode = '229',
     this.autoAssignToAgent = false,
     this.customVerdicts = const [],
+    this.planId = 'DISCOVERY',
+    this.appelsManuelsRestants = 250,
+    this.smsManuelsRestants = 250,
+    this.whatsappManuelsRestants = 100,
+    this.appelsGroupesRestants = 0,
+    this.smsGroupesRestants = 0,
+    this.whatsappGroupesRestants = 0,
+    this.emailsGroupesRestants = 0,
+    this.prospectsRestants = 50,
+    this.agentsRestants = 2,
   });
 
   static List<String> get platformDefaultVerdicts => [
@@ -135,6 +157,16 @@ class Enterprise {
     String? defaultCountryCode,
     bool? autoAssignToAgent,
     List<String>? customVerdicts,
+    String? planId,
+    int? appelsManuelsRestants,
+    int? smsManuelsRestants,
+    int? whatsappManuelsRestants,
+    int? appelsGroupesRestants,
+    int? smsGroupesRestants,
+    int? whatsappGroupesRestants,
+    int? emailsGroupesRestants,
+    int? prospectsRestants,
+    int? agentsRestants,
   }) {
     return Enterprise(
       id: id ?? this.id,
@@ -148,6 +180,16 @@ class Enterprise {
       defaultCountryCode: defaultCountryCode ?? this.defaultCountryCode,
       autoAssignToAgent: autoAssignToAgent ?? this.autoAssignToAgent,
       customVerdicts: customVerdicts ?? this.customVerdicts,
+      planId: planId ?? this.planId,
+      appelsManuelsRestants: appelsManuelsRestants ?? this.appelsManuelsRestants,
+      smsManuelsRestants: smsManuelsRestants ?? this.smsManuelsRestants,
+      whatsappManuelsRestants: whatsappManuelsRestants ?? this.whatsappManuelsRestants,
+      appelsGroupesRestants: appelsGroupesRestants ?? this.appelsGroupesRestants,
+      smsGroupesRestants: smsGroupesRestants ?? this.smsGroupesRestants,
+      whatsappGroupesRestants: whatsappGroupesRestants ?? this.whatsappGroupesRestants,
+      emailsGroupesRestants: emailsGroupesRestants ?? this.emailsGroupesRestants,
+      prospectsRestants: prospectsRestants ?? this.prospectsRestants,
+      agentsRestants: agentsRestants ?? this.agentsRestants,
     );
   }
 
@@ -164,6 +206,16 @@ class Enterprise {
       'defaultCountryCode': defaultCountryCode,
       'autoAssignToAgent': autoAssignToAgent,
       'customVerdicts': customVerdicts,
+      'planId': planId,
+      'appelsManuelsRestants': appelsManuelsRestants,
+      'smsManuelsRestants': smsManuelsRestants,
+      'whatsappManuelsRestants': whatsappManuelsRestants,
+      'appelsGroupesRestants': appelsGroupesRestants,
+      'smsGroupesRestants': smsGroupesRestants,
+      'whatsappGroupesRestants': whatsappGroupesRestants,
+      'emailsGroupesRestants': emailsGroupesRestants,
+      'prospectsRestants': prospectsRestants,
+      'agentsRestants': agentsRestants,
     };
   }
 
@@ -186,6 +238,16 @@ class Enterprise {
       defaultCountryCode: map['defaultCountryCode'] ?? '229',
       autoAssignToAgent: map['autoAssignToAgent'] ?? false,
       customVerdicts: List<String>.from(map['customVerdicts'] ?? []),
+      planId: map['planId'] ?? 'DISCOVERY',
+      appelsManuelsRestants: map['appelsManuelsRestants'] ?? 250,
+      smsManuelsRestants: map['smsManuelsRestants'] ?? 250,
+      whatsappManuelsRestants: map['whatsappManuelsRestants'] ?? 100,
+      appelsGroupesRestants: map['appelsGroupesRestants'] ?? 0,
+      smsGroupesRestants: map['smsGroupesRestants'] ?? 0,
+      whatsappGroupesRestants: map['whatsappGroupesRestants'] ?? 0,
+      emailsGroupesRestants: map['emailsGroupesRestants'] ?? 0,
+      prospectsRestants: map['prospectsRestants'] ?? 50,
+      agentsRestants: map['agentsRestants'] ?? 2,
     );
   }
 

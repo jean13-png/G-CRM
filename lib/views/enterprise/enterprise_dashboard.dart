@@ -18,8 +18,8 @@ import '../../services/pdf_service.dart';
 import '../agent/prospect_detail_screen.dart';
 import '../../app_config.dart';
 import '../../services/whatsapp_service.dart';
-import '../../services/sms_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'subscription_screen.dart';
 
 import 'package:intl/intl.dart';
 
@@ -130,6 +130,16 @@ class _EnterpriseDashboardState extends State<EnterpriseDashboard> {
             ],
           ),
           IconButton(
+            tooltip: 'Abonnements',
+            icon: const Icon(Icons.credit_card_outlined, color: AppTheme.primaryColor),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
+              );
+            },
+          ),
+          IconButton(
             tooltip: 'Déconnexion',
             icon: const Icon(Icons.logout, color: AppTheme.errorColor),
             onPressed: () {
@@ -192,72 +202,102 @@ class _EnterpriseDashboardState extends State<EnterpriseDashboard> {
   }
 }
 
-class _GlobalCommProgressBar extends StatelessWidget {
-  final DatabaseService db;
-  const _GlobalCommProgressBar({required this.db});
-
-  @override
-  Widget build(BuildContext context) {
-    final progress = db.commProgressTotal > 0 ? db.commProgressCurrent / db.commProgressTotal : 0.0;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryColor),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      db.commOperationLabel,
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                    ),
-                    Text(
-                      "${db.commProgressCurrent}/${db.commProgressTotal} traité(s)",
-                      style: const TextStyle(fontSize: 10, color: AppTheme.textLight),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                "${(progress * 100).toInt()}%",
-                style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryColor),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Colors.grey.shade200,
-            valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 // ================= 1. ANALYTICS TAB =================
 class _AnalyticsTab extends StatelessWidget {
   const _AnalyticsTab();
+
+  Widget _buildQuotaSection(DatabaseService db) {
+    final enterprise = db.currentEnterprise;
+    if (enterprise == null) return const SizedBox.shrink();
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Crédits de prospection",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppTheme.secondaryColor),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    "Plan ${enterprise.planId}",
+                    style: const TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold, fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildQuotaGauge("Appels Manuels", enterprise.appelsManuelsRestants, _getMaxQuota(enterprise.planId, 'appels')),
+            const SizedBox(height: 12),
+            _buildQuotaGauge("SMS Manuels", enterprise.smsManuelsRestants, _getMaxQuota(enterprise.planId, 'sms')),
+            const SizedBox(height: 12),
+            _buildQuotaGauge("WhatsApp Manuels", enterprise.whatsappManuelsRestants, _getMaxQuota(enterprise.planId, 'whatsapp')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  int _getMaxQuota(String plan, String type) {
+    if (plan == 'DISCOVERY') {
+      if (type == 'appels') return 250;
+      if (type == 'sms') return 250;
+      if (type == 'whatsapp') return 100;
+    } else if (plan == 'STARTER') {
+      if (type == 'appels') return 600;
+      if (type == 'sms') return 600;
+      if (type == 'whatsapp') return 400;
+    } else if (plan == 'PRO') {
+      if (type == 'appels') return 3500;
+      if (type == 'sms') return 3500;
+      if (type == 'whatsapp') return 1800;
+    } else if (plan == 'BUSINESS') {
+      if (type == 'appels') return 10000;
+      if (type == 'sms') return 10000;
+      if (type == 'whatsapp') return 5000;
+    }
+    return 100; // default
+  }
+
+  Widget _buildQuotaGauge(String label, int current, int max) {
+    final double percent = max > 0 ? (current / max).clamp(0.0, 1.0) : 0;
+    final Color color = percent > 0.2 ? AppTheme.primaryColor : (percent > 0 ? AppTheme.warningColor : AppTheme.errorColor);
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+            Text("$current / $max", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: percent,
+            minHeight: 8,
+            backgroundColor: Colors.grey.shade200,
+            valueColor: AlwaysStoppedAnimation<Color>(color),
+          ),
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -347,6 +387,12 @@ class _AnalyticsTab extends StatelessWidget {
             ),
             const SizedBox(height: 16),
           ],
+
+          const SizedBox(height: 16),
+          
+          _buildQuotaSection(db),
+          
+          const SizedBox(height: 24),
 
           const Text(
             "Vue d'ensemble de la prospection",
@@ -1661,18 +1707,32 @@ class _CommunicationTabState extends State<_CommunicationTab> {
       crossAxisSpacing: 20,
       childAspectRatio: 0.85, // Donne plus de hauteur aux cartes pour éviter les débordements
       children: [
-        _buildServiceCard(_CommService.sms, Icons.sms, Colors.green, "Envoyez des SMS à vos prospects en un clic."),
-        _buildServiceCard(_CommService.call, Icons.phone_callback, Colors.orange, "Lancez des appels automatisés avec message vocal."),
-        _buildServiceCard(_CommService.email, Icons.email, Colors.blue, "Envoyez des emails personnalisés en masse."),
-        _buildServiceCard(_CommService.whatsapp, Icons.chat, Colors.teal, "Contactez vos prospects via WhatsApp (Automatisé)."),
+        _buildServiceCard(_CommService.sms, Icons.sms, Colors.green, "Envoyez des SMS à vos prospects en un clic.", isAvailable: false),
+        _buildServiceCard(_CommService.call, Icons.phone_callback, Colors.orange, "Lancez des appels automatisés avec message vocal.", isAvailable: false),
+        _buildServiceCard(_CommService.email, Icons.email, Colors.blue, "Envoyez des emails personnalisés en masse.", isAvailable: true),
+        _buildServiceCard(_CommService.whatsapp, Icons.chat, Colors.teal, "Contactez vos prospects via WhatsApp (Automatisé).", isAvailable: false),
       ],
     );
   }
 
-  Widget _buildServiceCard(_CommService service, IconData icon, Color color, String desc) {
-    return InkWell(
-      onTap: () async {
-        final db = Provider.of<DatabaseService>(context, listen: false);
+  Widget _buildServiceCard(_CommService service, IconData icon, Color color, String desc, {bool isAvailable = true}) {
+    return Opacity(
+      opacity: isAvailable ? 1.0 : 0.5,
+      child: InkWell(
+        onTap: () async {
+          if (!isAvailable) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Service momentanément indisponible ou en cours de développement."),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+            return;
+          }
+
+          final db = Provider.of<DatabaseService>(context, listen: false);
         
         // Vérification spéciale pour WhatsApp
         if (service == _CommService.whatsapp) {
@@ -1727,6 +1787,7 @@ class _CommunicationTabState extends State<_CommunicationTab> {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),

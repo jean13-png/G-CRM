@@ -35,4 +35,8 @@ class AppConfig {
   );
   static const String internalApiKey =
       String.fromEnvironment('INTERNAL_API_KEY', defaultValue: '');
+
+  // FedaPay Configuration
+  static const String fedapayPublicKey =
+      String.fromEnvironment('FEDAPAY_PUBLIC_KEY', defaultValue: '');
 }

@@ -141,7 +141,7 @@ class _ProspectDetailScreenState extends State<ProspectDetailScreen> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () => _makeCall(prospect.phone),
+                    onPressed: () => _makeCall(db, prospect.phone),
                     icon: const Icon(Icons.phone),
                     label: const Text("Appel"),
                     style: ElevatedButton.styleFrom(backgroundColor: AppTheme.secondaryColor),
@@ -279,7 +279,17 @@ class _ProspectDetailScreenState extends State<ProspectDetailScreen> {
 
   // --- CONTACT METHODS ---
 
-  Future<void> _makeCall(String phoneNumber) async {
+  Future<void> _makeCall(DatabaseService db, String phoneNumber) async {
+    final hasQuota = await db.checkAndConsumeQuota('appel_manuel', 1);
+    if (!hasQuota) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Crédits d'appels épuisés. Veuillez contacter votre administrateur."), backgroundColor: AppTheme.errorColor),
+        );
+      }
+      return;
+    }
+
     final Uri url = Uri.parse("tel:$phoneNumber");
     try {
       final success = await launchUrl(url);
@@ -294,6 +304,16 @@ class _ProspectDetailScreenState extends State<ProspectDetailScreen> {
   }
 
   Future<void> _sendWhatsApp(DatabaseService db, String phoneNumber) async {
+    final hasQuota = await db.checkAndConsumeQuota('whatsapp_manuel', 1);
+    if (!hasQuota) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Crédits WhatsApp épuisés. Veuillez contacter votre administrateur."), backgroundColor: AppTheme.errorColor),
+        );
+      }
+      return;
+    }
+
     final message = _selectedTemplate != null 
         ? _selectedTemplate!.content 
         : "Bonjour, je vous contacte suite à notre échange G-CRM.";
@@ -314,6 +334,16 @@ class _ProspectDetailScreenState extends State<ProspectDetailScreen> {
   }
 
   Future<void> _sendSMS(DatabaseService db, String phoneNumber) async {
+    final hasQuota = await db.checkAndConsumeQuota('sms_manuel', 1);
+    if (!hasQuota) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Crédits SMS épuisés. Veuillez contacter votre administrateur."), backgroundColor: AppTheme.errorColor),
+        );
+      }
+      return;
+    }
+
     final message = _selectedTemplate != null 
         ? _selectedTemplate!.content 
         : "Bonjour, je vous contacte suite à notre échange G-CRM.";

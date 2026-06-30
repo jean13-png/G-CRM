@@ -587,6 +587,106 @@ class DatabaseService extends ChangeNotifier {
     return cleanPhone;
   }
 
+  // ================= QUOTAS MANAGEMENT =================
+  Future<bool> checkAndConsumeQuota(String type, int amount) async {
+    final enterprise = _currentEnterprise;
+    if (enterprise == null) return false;
+
+    int remaining = 0;
+    String fieldName = '';
+
+    if (type == 'appel_manuel') {
+      remaining = enterprise.appelsManuelsRestants;
+      fieldName = 'appelsManuelsRestants';
+    } else if (type == 'sms_manuel') {
+      remaining = enterprise.smsManuelsRestants;
+      fieldName = 'smsManuelsRestants';
+    } else if (type == 'whatsapp_manuel') {
+      remaining = enterprise.whatsappManuelsRestants;
+      fieldName = 'whatsappManuelsRestants';
+    } else if (type == 'sms_groupe') {
+      remaining = enterprise.smsGroupesRestants;
+      fieldName = 'smsGroupesRestants';
+    } else if (type == 'email_groupe') {
+      remaining = enterprise.emailsGroupesRestants;
+      fieldName = 'emailsGroupesRestants';
+    } else if (type == 'prospect') {
+      remaining = enterprise.prospectsRestants;
+      fieldName = 'prospectsRestants';
+    } else {
+      return true; // Not managed yet
+    }
+
+    if (remaining < amount) {
+      return false;
+    }
+
+    final newRemaining = remaining - amount;
+
+    await FirebaseFirestore.instance
+        .collection('enterprises')
+        .doc(enterprise.id)
+        .update({
+      fieldName: newRemaining,
+    });
+
+    // Check thresholds for notifications
+    final maxQuota = _getMaxQuotaForDb(enterprise.planId, type);
+    if (maxQuota > 0) {
+      final double percentUsed = (maxQuota - newRemaining) / maxQuota;
+      final int previousPercentUsed = (maxQuota - remaining) / maxQuota >= 0 ? ((maxQuota - remaining) / maxQuota * 100).toInt() : 0;
+      final int currentPercentUsed = (percentUsed * 100).toInt();
+      
+      String alertMsg = '';
+      if (newRemaining == 0 && remaining > 0) {
+        alertMsg = "Alerte : Vos crédits de $type sont épuisés (100%) ! Les actions sont bloquées. Veuillez passer au plan supérieur.";
+      } else if (currentPercentUsed >= 90 && previousPercentUsed < 90) {
+        alertMsg = "Attention : Vos crédits de $type seront bientôt épuisés (90% utilisés).";
+      } else if (currentPercentUsed >= 80 && previousPercentUsed < 80) {
+        alertMsg = "Information : Vous avez utilisé 80% de vos crédits de $type.";
+      }
+
+      if (alertMsg.isNotEmpty) {
+        final notifs = List<String>.from(enterprise.adminNotifications);
+        notifs.add("${DateTime.now().toIso8601String().split('T')[0]} - $alertMsg");
+        
+        await FirebaseFirestore.instance
+            .collection('enterprises')
+            .doc(enterprise.id)
+            .update({
+          'adminNotifications': notifs,
+        });
+      }
+    }
+
+    return true;
+  }
+
+  int _getMaxQuotaForDb(String plan, String type) {
+    if (plan == 'DISCOVERY') {
+      if (type == 'appel_manuel') return 250;
+      if (type == 'sms_manuel') return 250;
+      if (type == 'whatsapp_manuel') return 100;
+      if (type == 'prospect') return 50;
+    } else if (plan == 'STARTER') {
+      if (type == 'appel_manuel') return 600;
+      if (type == 'sms_manuel') return 600;
+      if (type == 'whatsapp_manuel') return 400;
+      if (type == 'prospect') return 800;
+    } else if (plan == 'PRO') {
+      if (type == 'appel_manuel') return 3500;
+      if (type == 'sms_manuel') return 3500;
+      if (type == 'whatsapp_manuel') return 1800;
+      if (type == 'prospect') return 5000;
+    } else if (plan == 'BUSINESS') {
+      if (type == 'appel_manuel') return 10000;
+      if (type == 'sms_manuel') return 10000;
+      if (type == 'whatsapp_manuel') return 5000;
+      if (type == 'prospect') return 20000;
+    }
+    return 100;
+  }
+
   // ================= PROSPECT ACTIONS =================
 
   // Assign a list of prospects to an agent
