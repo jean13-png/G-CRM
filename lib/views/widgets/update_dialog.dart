@@ -317,3 +317,4 @@ class UpdateHelper {
     await Future.delayed(const Duration(seconds: 2));
     await checkAndShowUpdateDialog(context);
   }
+}
