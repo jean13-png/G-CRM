@@ -377,7 +377,7 @@ app.post("/claim-payment", requireApiKey, async (req, res) => {
     }
 
     if (fedaTx.status !== "approved") {
-      return res.status(400).json({ error: \`Le paiement n'a pas abouti (Statut actuel: \${fedaTx.status}).\` });
+      return res.status(400).json({ error: `Le paiement n'a pas abouti (Statut actuel: ${fedaTx.status}).` });
     }
 
     // 6. Si FedaPay confirme le succès, on applique l'abonnement
@@ -405,12 +405,12 @@ app.post("/claim-payment", requireApiKey, async (req, res) => {
     });
 
     // Notification in-app
-    const notifId = \`notif_claim_\${Date.now()}\`;
+    const notifId = `notif_claim_${Date.now()}`;
     const notifRef = db.collection("notifications").doc(notifId);
     batch.set(notifRef, {
       id: notifId,
       title: "Réclamation validée",
-      body: \`Votre paiement a été retrouvé et validé. Le plan \${planId} est actif !\`,
+      body: `Votre paiement a été retrouvé et validé. Le plan ${planId} est actif !`,
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
       type: "payment",
       relatedId: transactionId.toString(),
