@@ -15,7 +15,6 @@ class NotificationService {
     'G-CRM Notifications', // name
     description: 'Notifications for G-CRM app', // description
     importance: Importance.max,
-    priority: Priority.high,
     playSound: true,
     enableVibration: true,
     showBadge: true,
