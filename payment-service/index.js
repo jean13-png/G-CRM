@@ -4,7 +4,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const admin = require("firebase-admin");
-const FedaPay = require("fedapay");
+const { FedaPay, Transaction } = require("fedapay");
 
 // ============================================================
 //  Firebase Admin — Connexion Firestore
@@ -134,7 +134,7 @@ app.post("/create-transaction", requireApiKey, async (req, res) => {
     const serviceUrl = process.env.PAYMENT_SERVICE_URL || "https://g-crm-payment-service.onrender.com";
 
     // 2. Créer la transaction via SDK FedaPay officiel
-    const transaction = await FedaPay.Transaction.create({
+    const transaction = await Transaction.create({
       description: `Abonnement G-CRM - Plan ${planName || planId}`,
       amount: parseInt(amount),
       currency: { iso: "XOF" },
