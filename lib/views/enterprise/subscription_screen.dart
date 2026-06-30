@@ -202,7 +202,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       } else {
         final errBody = json.decode(response.body) as Map<String, dynamic>?;
         final errMsg = errBody?['error'] ?? 'Erreur serveur ${response.statusCode}';
-        throw Exception(errMsg);
+        final errDetail = errBody?['detail'] ?? '';
+        throw Exception('$errMsg\n$errDetail');
       }
     } catch (e) {
       if (mounted) {

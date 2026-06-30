@@ -150,8 +150,8 @@ app.post("/create-transaction", requireApiKey, async (req, res) => {
           planId,
         },
         customer: {
-          firstname: enterprise.name || "Client G-CRM",
-          lastname: "",
+          firstname: enterprise.name || "Client",
+          lastname: "G-CRM",
           email: enterprise.email || "contact@g-crm.app",
         },
       },
