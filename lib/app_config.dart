@@ -39,4 +39,12 @@ class AppConfig {
   // FedaPay Configuration
   static const String fedapayPublicKey =
       String.fromEnvironment('FEDAPAY_PUBLIC_KEY', defaultValue: '');
+
+  // Payment service configuration
+  static const String paymentServiceUrl = String.fromEnvironment(
+    'PAYMENT_SERVICE_URL',
+    defaultValue: 'http://localhost:3002',
+  );
+  static const String paymentInternalApiKey =
+      String.fromEnvironment('PAYMENT_INTERNAL_API_KEY', defaultValue: '');
 }
