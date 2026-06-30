@@ -56,14 +56,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final db = Provider.of<DatabaseService>(context);
     final messages = db.getChatMessages(widget.agentId);
-    final String currentUserId = db.currentUserRole == 'enterprise' 
-        ? (db.currentEnterprise?.id ?? '') 
+    final String currentUserId = db.currentUserRole == 'enterprise'
+        ? (db.currentEnterprise?.id ?? '')
         : (db.currentAgent?.id ?? '');
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToBottom();
-      db.markMessagesAsRead(widget.agentId);
-    });
 
     return Scaffold(
       appBar: AppBar(

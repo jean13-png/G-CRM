@@ -17,6 +17,10 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+if (!INTERNAL_API_KEY) {
+  console.warn("WARNING: INTERNAL_API_KEY not configured - authentication may be disabled");
+}
+
 function corsOptions() {
   if (ALLOWED_ORIGINS.length === 0) {
     return { origin: false };
@@ -46,7 +50,6 @@ app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     message: 'G-CRM WhatsApp Microservice is running!',
-    hasApiKey: !!INTERNAL_API_KEY,
   });
 });
 
@@ -68,7 +71,7 @@ async function startServer() {
       console.log('✅ Prêt à recevoir des requêtes !');
     });
   } catch (error) {
-    console.error('❌ Échec du démarrage du serveur :', error);
+    console.error('❌ Échec du démarrage du serveur');
     process.exit(1);
   }
 }

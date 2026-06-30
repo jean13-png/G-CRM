@@ -47,14 +47,14 @@ class WhatsAppService {
       ).timeout(const Duration(seconds: 20));
 
       if (response.statusCode != 200) {
-        debugPrint('fetchQrCode ${response.statusCode}: ${response.body}');
+        debugPrint('fetchQrCode status: ${response.statusCode}');
         return null;
       }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       return _extractQrCode(data);
     } catch (e) {
-      debugPrint('fetchQrCode error: $e');
+      debugPrint('fetchQrCode error');
       return null;
     }
   }
@@ -89,10 +89,10 @@ class WhatsAppService {
         ).timeout(_deleteTimeout);
 
         if (response.statusCode == 200 || response.statusCode == 404) return;
-        throw Exception('Suppression impossible (${response.statusCode}): ${response.body}');
+        throw Exception('Suppression impossible (${response.statusCode})');
       } on TimeoutException catch (e) {
         lastError = e;
-        debugPrint('deleteInstance timeout (tentative $attempt): $e');
+        debugPrint('deleteInstance timeout (tentative $attempt)');
         if (attempt < 2) {
           await Future.delayed(const Duration(seconds: 5));
         }
@@ -141,7 +141,7 @@ class WhatsAppService {
     ).timeout(_createTimeout);
 
     if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception('Erreur création instance: ${response.statusCode} — ${response.body}');
+      throw Exception('Erreur création instance (${response.statusCode})');
     }
 
     return jsonDecode(response.body) as Map<String, dynamic>;
@@ -167,7 +167,7 @@ class WhatsAppService {
       );
 
       // 3. Attendre un peu que Baileys initialise la session
-      debugPrint('Instance créée, attente 3s pour initialisation...');
+      debugPrint('Instance creee, attente 3s pour initialisation...');
       await Future.delayed(const Duration(seconds: 3));
 
       // 4. UN SEUL ET UNIQUE APPEL à /connect?number=
@@ -175,7 +175,7 @@ class WhatsAppService {
       return await _fetchPairingCodeFromConnect(instanceName, cleanPhone);
 
     } catch (e) {
-      debugPrint('❌ requestPairingCode error: $e');
+      debugPrint('requestPairingCode error');
       rethrow;
     }
   }
@@ -209,26 +209,26 @@ class WhatsAppService {
     final uri = Uri.parse('${_getBaseUrl()}/instance/connect/$instanceName')
         .replace(queryParameters: {'number': cleanPhone});
 
-    debugPrint('Appel unique à /connect pour pairing code: $uri');
-    
+    debugPrint('Appel /connect pour pairing code');
+
     final response = await http.get(uri, headers: _headers())
         .timeout(const Duration(seconds: 45));
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       // Chercher le code dans tous les champs possibles d'Evolution API v2
-      final pairingCode = data['pairingCode']?.toString() ?? 
-                         data['code']?.toString() ?? 
+      final pairingCode = data['pairingCode']?.toString() ??
+                         data['code']?.toString() ??
                          data['qrcode']?['pairingCode']?.toString();
-                         
+
       if (pairingCode != null && pairingCode.isNotEmpty) {
-        debugPrint('Pairing code reçu: $pairingCode');
+        debugPrint('Pairing code recu');
         return pairingCode;
       }
-      
-      debugPrint('Réponse 200 mais aucun code trouvé: ${response.body}');
+
+      debugPrint('Pairing code non trouve dans la reponse');
     } else {
-      debugPrint('Erreur /connect (${response.statusCode}): ${response.body}');
+      debugPrint('Erreur /connect (${response.statusCode})');
     }
 
     throw Exception('Le serveur n\'a pas généré de code. Veuillez réessayer.');
@@ -240,10 +240,10 @@ class WhatsAppService {
   }) async {
     try {
       final instanceName = _getInstanceName(enterpriseId);
-      debugPrint('>>> Instance: $instanceName (forceRecreate: $forceRecreate)');
+      debugPrint('Tentative connexion instance (forceRecreate: $forceRecreate)');
 
       if (!forceRecreate && await instanceExists(enterpriseId)) {
-        debugPrint('L\'instance $instanceName existe déjà.');
+        debugPrint('Instance deja connectee');
         final info = await getConnectionInfo(enterpriseId);
         if (info['status'] == 'connected' || info['qrCode'] != null) {
           return info;
@@ -251,11 +251,11 @@ class WhatsAppService {
       }
 
       if (await instanceExists(enterpriseId)) {
-        debugPrint('Suppression instance $instanceName avant recréation...');
+        debugPrint('Suppression instance avant recreation...');
         try {
           await deleteInstance(enterpriseId);
         } catch (e) {
-          debugPrint('deleteInstance: $e');
+          debugPrint('Erreur suppression instance');
         }
       }
 
@@ -270,7 +270,7 @@ class WhatsAppService {
         'serverIssue': qrCode == null,
       };
     } catch (e) {
-      debugPrint('Exception dans connectInstance: $e');
+      debugPrint('Erreur connexion WhatsApp');
       throw Exception('Erreur connexion WhatsApp. Réessayez.');
     }
   }
@@ -369,9 +369,9 @@ class WhatsAppService {
     try {
       final instanceName = _getInstanceName(enterpriseId);
       final headers = _headers(json: true);
-      
+
       final formattedPhone = _formatPhoneNumber(phone);
-      debugPrint('Tentative d\'envoi WhatsApp vers $formattedPhone');
+      debugPrint('Tentative envoi WhatsApp');
 
       final response = await http.post(
         Uri.parse('${_getBaseUrl()}/message/sendText/$instanceName'),
@@ -387,8 +387,8 @@ class WhatsAppService {
       final data = jsonDecode(response.body);
 
       if (response.statusCode != 200 && response.statusCode != 201) {
-        debugPrint('Erreur envoi WhatsApp (${response.statusCode}): ${response.body}');
-        
+        debugPrint('Erreur envoi WhatsApp (${response.statusCode})');
+
         // Cas spécifique du numéro qui n'existe pas
         if (response.statusCode == 400 && response.body.contains('"exists":false')) {
           return {
@@ -399,17 +399,17 @@ class WhatsAppService {
         }
 
         return {
-          'success': false, 
+          'success': false,
           'error': 'Erreur serveur (${response.statusCode})',
           'details': data
         };
       }
-      
+
       return {'success': true};
     } catch (e) {
-      debugPrint('Erreur envoi message WhatsApp: $e');
+      debugPrint('Erreur envoi WhatsApp');
       return {
-        'success': false, 
+        'success': false,
         'error': e is TimeoutException ? 'Délai d\'attente dépassé (Serveur lent)' : 'Erreur inconnue',
       };
     }

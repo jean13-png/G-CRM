@@ -436,9 +436,13 @@ class DatabaseService extends ChangeNotifier {
     }
   }
 
-  void signOut() async {
+  Future<void> signOut() async {
     _cancelAllSubscriptions();
-    await FirebaseAuth.instance.signOut();
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (e) {
+      debugPrint("Error during signOut: $e");
+    }
     _currentEnterprise = null;
     _currentAgent = null;
     _currentUserRole = null;
@@ -497,72 +501,104 @@ class DatabaseService extends ChangeNotifier {
   // Update dynamic form configuration
   Future<void> updateFormSettings(List<ProspectFieldSetting> settings) async {
     if (_currentEnterprise == null) return;
-    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
-      'formSettings': settings.map((s) => s.toMap()).toList(),
-    });
+    try {
+      await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+        'formSettings': settings.map((s) => s.toMap()).toList(),
+      });
+    } catch (e) {
+      debugPrint("Error updating form settings: $e");
+    }
   }
 
   // Manage Message Templates
   Future<void> addMessageTemplate(String title, String content) async {
     if (_currentEnterprise == null) return;
-    final newTemplate = MessageTemplate(
-      id: "tmpl_${DateTime.now().millisecondsSinceEpoch}",
-      title: title.trim(),
-      content: content.trim(),
-    );
-    final updatedTemplates = List<MessageTemplate>.from(_currentEnterprise!.messageTemplates)..add(newTemplate);
-    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
-      'messageTemplates': updatedTemplates.map((t) => t.toMap()).toList(),
-    });
+    try {
+      final newTemplate = MessageTemplate(
+        id: "tmpl_${DateTime.now().millisecondsSinceEpoch}",
+        title: title.trim(),
+        content: content.trim(),
+      );
+      final updatedTemplates = List<MessageTemplate>.from(_currentEnterprise!.messageTemplates)..add(newTemplate);
+      await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+        'messageTemplates': updatedTemplates.map((t) => t.toMap()).toList(),
+      });
+    } catch (e) {
+      debugPrint("Error adding message template: $e");
+    }
   }
 
   Future<void> deleteMessageTemplate(String templateId) async {
     if (_currentEnterprise == null) return;
-    final updatedTemplates = _currentEnterprise!.messageTemplates.where((t) => t.id != templateId).toList();
-    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
-      'messageTemplates': updatedTemplates.map((t) => t.toMap()).toList(),
-    });
+    try {
+      final updatedTemplates = _currentEnterprise!.messageTemplates.where((t) => t.id != templateId).toList();
+      await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+        'messageTemplates': updatedTemplates.map((t) => t.toMap()).toList(),
+      });
+    } catch (e) {
+      debugPrint("Error deleting message template: $e");
+    }
   }
 
   // Update Brevo SMTP / API settings
   Future<void> updateEnterpriseBrevoSettings(String apiKey, String senderEmail) async {
     if (_currentEnterprise == null) return;
-    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
-      'brevoApiKey': apiKey.trim(),
-      'brevoSenderEmail': senderEmail.trim(),
-    });
+    try {
+      await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+        'brevoApiKey': apiKey.trim(),
+        'brevoSenderEmail': senderEmail.trim(),
+      });
+    } catch (e) {
+      debugPrint("Error updating Brevo settings: $e");
+    }
   }
 
   // Update Country Code
   Future<void> updateDefaultCountryCode(String code) async {
     if (_currentEnterprise == null) return;
     final cleanCode = code.replaceAll('+', '').trim();
-    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
-      'defaultCountryCode': cleanCode,
-    });
+    try {
+      await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+        'defaultCountryCode': cleanCode,
+      });
+    } catch (e) {
+      debugPrint("Error updating country code: $e");
+    }
   }
 
   // Update Auto Assign Setting
   Future<void> updateAutoAssignToAgent(bool value) async {
     if (_currentEnterprise == null) return;
-    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
-      'autoAssignToAgent': value,
-    });
+    try {
+      await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+        'autoAssignToAgent': value,
+      });
+    } catch (e) {
+      debugPrint("Error updating auto assign setting: $e");
+    }
   }
 
   // Update Custom Verdicts
   Future<void> updateCustomVerdicts(List<String> verdicts) async {
     if (_currentEnterprise == null) return;
-    await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
-      'customVerdicts': verdicts,
-    });
+    try {
+      await FirebaseFirestore.instance.collection('enterprises').doc(_currentEnterprise!.id).update({
+        'customVerdicts': verdicts,
+      });
+    } catch (e) {
+      debugPrint("Error updating custom verdicts: $e");
+    }
   }
 
   // Update Africa's Talking settings (Géré globalement via AppConfig)
-  Future<void> updateAfricaTalkingSettings(String apiKey, String username) async {}
+  Future<void> updateAfricaTalkingSettings(String apiKey, String username) async {
+    debugPrint("updateAfricaTalkingSettings is deprecated - use AppConfig instead");
+  }
 
   // Update Twilio settings (Géré globalement via AppConfig)
-  Future<void> updateTwilioSettings(String accountSid, String authToken, String phoneNumber) async {}
+  Future<void> updateTwilioSettings(String accountSid, String authToken, String phoneNumber) async {
+    debugPrint("updateTwilioSettings is deprecated - use AppConfig instead");
+  }
 
   // Format phone number for WhatsApp/SMS
   String formatPhoneNumber(String phone) {

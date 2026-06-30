@@ -142,12 +142,14 @@ class _EnterpriseDashboardState extends State<EnterpriseDashboard> {
           IconButton(
             tooltip: 'Déconnexion',
             icon: const Icon(Icons.logout, color: AppTheme.errorColor),
-            onPressed: () {
-              db.signOut();
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (context) => const RoleSelectionScreen()),
-                (route) => false,
-              );
+            onPressed: () async {
+              await db.signOut();
+              if (context.mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (context) => const RoleSelectionScreen()),
+                  (route) => false,
+                );
+              }
             },
           ),
         ],

@@ -70,15 +70,28 @@ const PLAN_QUOTAS = {
 const app = express();
 const PORT = process.env.PORT || 3002;
 
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+function corsOptions() {
+  if (ALLOWED_ORIGINS.includes('*')) {
+    return { origin: false };
+  }
+  return {
+    origin(origin, callback) {
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Origin non autorisee'));
+    },
+  };
+}
+
 app.use(helmet());
 app.use(express.json({ limit: "1mb" }));
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "x-api-key"],
-  })
-);
+app.use(cors(corsOptions()));
 
 const limiter = rateLimit({
   windowMs: 60 * 1000,
@@ -88,8 +101,14 @@ const limiter = rateLimit({
 app.use(limiter);
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "";
+if (!INTERNAL_API_KEY) {
+  console.warn("WARNING: INTERNAL_API_KEY not configured - authentication disabled!");
+}
 function requireApiKey(req, res, next) {
-  if (!INTERNAL_API_KEY) return next();
+  if (!INTERNAL_API_KEY) {
+    console.error("Blocked request: INTERNAL_API_KEY not configured");
+    return res.status(503).json({ error: "Service configuration error" });
+  }
   const key = req.headers["x-api-key"];
   if (key !== INTERNAL_API_KEY) {
     return res.status(401).json({ error: "Clé API invalide" });
@@ -152,12 +171,12 @@ app.post("/create-transaction", requireApiKey, async (req, res) => {
 
     // 3. Générer le token de paiement
     const token = await transaction.generateToken();
-    console.log("Token:", JSON.stringify(token));
+    console.log("Token genere pour transaction #", transaction.id);
 
     const checkoutUrl = token.url || (token.token ? `https://checkout.fedapay.com/${token.token}` : null);
 
     if (!checkoutUrl) {
-      throw new Error(`URL de paiement introuvable: ${JSON.stringify(token)}`);
+      throw new Error("URL de paiement introuvable dans la reponse FedaPay");
     }
 
     // 4. Enregistrer dans Firestore
@@ -181,7 +200,6 @@ app.post("/create-transaction", requireApiKey, async (req, res) => {
     console.error("Erreur creation transaction:", detail);
     return res.status(500).json({
       error: "Erreur lors de la création du paiement FedaPay",
-      detail,
     });
   }
 });

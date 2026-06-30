@@ -17,10 +17,14 @@ class _NotificationScreenState extends State<NotificationScreen> {
   @override
   void initState() {
     super.initState();
-    // Mark all as read when opening history
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<DatabaseService>(context, listen: false).markAllNotificationsAsRead();
     });
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   @override

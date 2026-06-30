@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 import 'services/database_service.dart';
+import 'services/update_service.dart';
+import 'services/notification_service.dart';
 import 'models/chat_message.dart';
 import 'models/app_notification.dart';
 import 'views/chat/chat_screen.dart';
 import 'views/notifications/notification_screen.dart';
+import 'views/widgets/update_dialog.dart';
 import 'theme.dart';
 import 'views/auth/role_selection_screen.dart';
 
@@ -23,6 +26,10 @@ void main() async {
   // Create and initialize the database service
   final databaseService = DatabaseService();
   await databaseService.initialize();
+
+  // Initialize notification service
+  final notificationService = NotificationService();
+  await notificationService.initialize();
 
   runApp(
     MultiProvider(
@@ -44,6 +51,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   StreamSubscription? _notifSubscription;
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  final NotificationService _notificationService = NotificationService();
 
   @override
   void initState() {
@@ -61,6 +69,7 @@ class _MyAppState extends State<MyApp> {
 
       // Only notify if the notification is for me
       if (notification.targetUserId == currentUserId) {
+        _notificationService.showNotification(notification);
         _showInAppNotification(notification);
       }
     });
@@ -152,14 +161,47 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
-class MainGate extends StatelessWidget {
+class MainGate extends StatefulWidget {
   const MainGate({super.key});
+
+  @override
+  State<MainGate> createState() => _MainGateState();
+}
+
+class _MainGateState extends State<MainGate> {
+  bool _updateChecked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkForUpdates();
+  }
+
+  Future<void> _checkForUpdates() async {
+    if (_updateChecked) return;
+    _updateChecked = true;
+
+    await Future.delayed(const Duration(seconds: 1));
+
+    final updateService = UpdateService();
+    final updateInfo = await updateService.checkForUpdate();
+
+    if (updateInfo.status == UpdateStatus.available && mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => UpdateDialog(
+          updateInfo: updateInfo,
+          onLater: () => Navigator.of(context).pop(),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final db = Provider.of<DatabaseService>(context);
 
-    // If the database service is still initializing, show a simple splash loading screen
     if (!db.isInitialized) {
       return Scaffold(
         body: Stack(
@@ -203,7 +245,6 @@ class MainGate extends StatelessWidget {
       );
     }
 
-    // Default entrypoint is the Role Selection Screen
     return const RoleSelectionScreen();
   }
 }

@@ -5,10 +5,14 @@ const nodemailer = require("nodemailer");
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
-    user: process.env.GMAIL_USER || "gcrmcontact@gmail.com",
-    pass: process.env.GMAIL_PASS || "gzym upby shyp nkjo", // App Password
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_PASS,
   },
 });
+
+if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
+  console.error("ERROR: GMAIL_USER and GMAIL_PASS environment variables are required");
+}
 
 /**
  * Envoie une facture par e-mail
@@ -20,6 +24,11 @@ const transporter = nodemailer.createTransport({
  * @param {Date} date Date de la transaction
  */
 async function sendInvoiceEmail(email, enterpriseName, planId, amount, transactionId, date) {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
+    console.error("Cannot send email: Gmail credentials not configured");
+    return false;
+  }
+
   try {
     const formattedDate = date.toLocaleDateString("fr-FR", {
       year: "numeric",
@@ -98,14 +107,16 @@ async function sendInvoiceEmail(email, enterpriseName, planId, amount, transacti
     `;
 
     await transporter.sendMail({
-      from: '"G-CRM Facturation" <' + (process.env.GMAIL_USER || "gcrmcontact@gmail.com") + '>',
+      from: '"G-CRM Facturation" <' + process.env.GMAIL_USER + '>',
       to: email,
       subject: `Facture G-CRM - Abonnement Plan ${planId}`,
       html: mailHtml,
     });
     console.log(`Facture envoyée à ${email} pour la transaction ${transactionId}`);
+    return true;
   } catch (error) {
     console.error("Erreur lors de l'envoi de la facture:", error.message);
+    return false;
   }
 }
 

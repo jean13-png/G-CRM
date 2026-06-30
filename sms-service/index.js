@@ -24,6 +24,10 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+if (!INTERNAL_API_KEY) {
+  console.warn("WARNING: INTERNAL_API_KEY not configured - service may reject requests");
+}
+
 function corsOptions() {
   if (ALLOWED_ORIGINS.length === 0) {
     return { origin: false };
@@ -100,7 +104,7 @@ app.post('/configure', authMiddleware, async (req, res) => {
     androidGatewayUrl = gatewayUrl;
     androidGatewayToken = apiToken;
 
-    console.log('🔧 Configuration mise à jour :', { gatewayUrl, hasToken: !!apiToken });
+    console.log('🔧 Configuration mise à jour pour la gateway SMS');
     res.json({ success: true, message: 'Passerelle SMS configurée avec succès' });
   } catch (e) {
     console.error('Erreur configuration:', e);
@@ -147,7 +151,6 @@ app.get('/health', (req, res) => {
     status: 'OK',
     gatewayConfigured: !!(androidGatewayUrl && androidGatewayToken),
     service: 'SMS Gateway',
-    hasApiKey: !!INTERNAL_API_KEY,
   });
 });
 
