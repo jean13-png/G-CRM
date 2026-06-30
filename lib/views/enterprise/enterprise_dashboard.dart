@@ -308,9 +308,9 @@ class _AnalyticsTab extends StatelessWidget {
     final agents = db.getAgentsForCurrentEnterprise();
 
     final total = prospects.length;
-    final ok = prospects.where((x) => x.status == 'ok').length;
-    final non = prospects.where((x) => x.status == 'non').length;
-    final unreachable = prospects.where((x) => x.status == 'unreachable').length;
+    final ok = prospects.where((x) => x.status == 'ok' || x.status == 'Succès').length;
+    final non = prospects.where((x) => x.status == 'non' || x.status == 'Refus').length;
+    final unreachable = prospects.where((x) => x.status == 'unreachable' || x.status == 'Injoignable').length;
 
     final agentCounts = db.getProspectCountPerAgent();
 
