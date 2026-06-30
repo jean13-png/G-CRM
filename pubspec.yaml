@@ -46,7 +46,7 @@ dependencies:
   http: ^1.6.0
   pdf: ^3.11.1
   printing: ^5.13.2
-  package_info_plus: ^8.2.0
+  package_info_plus: ^10.2.0
   dio: ^5.8.0+1
   open_filex: ^4.6.0
   flutter_local_notifications: ^18.0.1
