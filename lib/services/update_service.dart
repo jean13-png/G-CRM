@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 enum UpdateStatus {
   notAvailable,
@@ -50,15 +51,38 @@ class UpdateService {
   //   "description": "Nouvelles fonctionnalités et corrections de bugs"
   // }
   static const String updateCheckUrl = 'https://gcrm.kesug.com/update.json';
+  static const String _lastCheckKey = 'last_update_check';
+  static const int _minCheckIntervalMinutes = 60; // Vérifier maximum une fois par heure
   CancelToken? _downloadCancelToken;
+  final Dio _dio = Dio();
 
   Future<UpdateInfo> checkForUpdate() async {
     try {
+      // Vérifier le rate limiting
+      final prefs = await SharedPreferences.getInstance();
+      final lastCheck = prefs.getInt(_lastCheckKey) ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - lastCheck < _minCheckIntervalMinutes * 60 * 1000) {
+        debugPrint("Vérification des mises à jour trop fréquente, skip");
+        return UpdateInfo(
+          status: UpdateStatus.notAvailable,
+        );
+      }
+      await prefs.setInt(_lastCheckKey, now);
+
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
       final currentBuildNumber = int.tryParse(packageInfo.buildNumber) ?? 0;
 
-      final response = await Dio().get(updateCheckUrl);
+      // Ajouter cache control pour éviter les requêtes inutiles
+      final response = await _dio.get(
+        updateCheckUrl,
+        options: Options(
+          headers: {
+            'Cache-Control': 'max-age=3600', // Cache 1 heure
+          },
+        ),
+      );
       final data = response.data;
 
       final newVersion = data['version'] as String?;
@@ -117,10 +141,14 @@ class UpdateService {
         await file.delete();
       }
 
-      await Dio().download(
+      await _dio.download(
         apkUrl,
         savePath,
         cancelToken: _downloadCancelToken,
+        options: Options(
+          receiveTimeout: const Duration(minutes: 10),
+          sendTimeout: const Duration(minutes: 10),
+        ),
         onReceiveProgress: (received, total) {
           if (total != -1) {
             final progress = (received / total) * 100;

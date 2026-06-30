@@ -731,6 +731,10 @@ class DatabaseService extends ChangeNotifier {
     
     final batch = FirebaseFirestore.instance.batch();
     
+    // Générer un ID stable pour la tâche (pour l'idempotence)
+    final sortedProspectIds = List<String>.from(prospectIds)..sort();
+    final taskId = "task_${agentId}_${sortedProspectIds.join('_')}";
+    
     // 1. Update each prospect to link it to the new agent and reset status to pending
     for (var pid in prospectIds) {
       final docRef = FirebaseFirestore.instance.collection('prospects').doc(pid);
@@ -740,8 +744,7 @@ class DatabaseService extends ChangeNotifier {
       });
     }
 
-    // 2. Create the task
-    final taskId = "task_${DateTime.now().millisecondsSinceEpoch}";
+    // 2. Create the task (utiliser set avec merge pour l'idempotence)
     final newTask = Task(
       id: taskId,
       enterpriseId: _currentEnterprise!.id,
@@ -750,10 +753,10 @@ class DatabaseService extends ChangeNotifier {
       assignedAt: DateTime.now(),
     );
     final taskDocRef = FirebaseFirestore.instance.collection('tasks').doc(taskId);
-    batch.set(taskDocRef, newTask.toMap());
+    batch.set(taskDocRef, newTask.toMap(), SetOptions(merge: true));
     
-    // 3. Create notification for agent
-    final notifId = "notif_task_${DateTime.now().millisecondsSinceEpoch}";
+    // 3. Create notification for agent (ID stable aussi)
+    final notifId = "notif_$taskId";
     final notif = AppNotification(
       id: notifId,
       title: "Nouvelle tâche assignée",
@@ -764,7 +767,7 @@ class DatabaseService extends ChangeNotifier {
       targetUserId: agentId,
     );
     final notifDocRef = FirebaseFirestore.instance.collection('notifications').doc(notifId);
-    batch.set(notifDocRef, notif.toMap());
+    batch.set(notifDocRef, notif.toMap(), SetOptions(merge: true));
 
     await batch.commit();
   }

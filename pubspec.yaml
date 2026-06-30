@@ -51,6 +51,7 @@ dependencies:
   open_filex: ^4.6.0
   flutter_local_notifications: ^18.0.1
   permission_handler: ^11.3.1
+  shared_preferences: ^2.3.5
 
 dev_dependencies:
   flutter_test:
